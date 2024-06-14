@@ -1,18 +1,17 @@
-var express = require('express');
-var cors = require('cors');
-var app = express();
-var bodyParser = require('body-parser');
-var jsonParser = bodyParser.json();
+const express = require('express');
+const router = express.Router();
+const bodyParser = require('body-parser');
+const jsonParser = bodyParser.json();
+const database = require('./database');
 const bcrypt = require('bcrypt');
 const saltRounds = 10;
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
-
 const config = require('./config');
-const database = require('./database');
-app.use(cors());
+const extendToken = require('./authen');
 
 dotenv.config();
+
 
 // == Register ==
 function registerUser (req , res , next){
@@ -86,6 +85,7 @@ function loginUser(req, res, next) {
                         console.log('Passwords match! User authenticated.');
                         var token = jwt.sign(
                             {
+                                user_id: email[0].user_id,
                                 email: email[0].email,
                                 firstname: email[0].firstname,
                                 lastname: email[0].lastname,
@@ -103,28 +103,6 @@ function loginUser(req, res, next) {
         )
 }
 
-// == Extend Token ==
-function extendToken(req, res, next) {
-    try {
-        const token = req.headers.authorization.split(' ')[1];
-        var decoded = jwt.verify(token, config.screct);
-        const newToken = jwt.sign(
-            {
-                email: decoded.email,
-                firstname: decoded.firstname,
-                lastname: decoded.lastname
-            },
-            config.screct,
-            { expiresIn: config.tokenExp }
-        );
-        res.setHeader('Authorization', 'Bearer ' + newToken);
-        // New token --> response
-        res.locals.newToken = newToken;
-        next();
-    } catch (err) {
-        res.json({ status: 'error', message: err.message });
-    }
-}
                          
 // == Get User ==
 function getUser(req, res, next) {
@@ -137,12 +115,9 @@ function getUser(req, res, next) {
     }
 }
 
+router.post('/login', jsonParser, loginUser);
+router.post('/register', jsonParser, registerUser);
+router.get('/user', jsonParser, extendToken , getUser);
 
-app.post('/register', jsonParser, registerUser)
-app.post('/login', jsonParser, loginUser);
-app.get('/user', jsonParser, extendToken, getUser);
-
-app.listen(3000, function () {
-    console.log('CORS-enabled web server listening on port 3000');
-});
+module.exports = router;
 

@@ -1,4 +1,4 @@
 module.exports = {
     screct : 'Tlogin',
-    tokenExp: '1h',
+    tokenExp: '45s',
 }
