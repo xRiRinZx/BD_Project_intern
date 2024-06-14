@@ -53,11 +53,42 @@ function summaryToday (req, res, next){
                 return;
             }
             res.json({ status: 'ok', transactionsToday:{user : req.body.user_id ,transactions}});
+        } 
+    )
+}
+
+// ==summary Selected Day==
+function summaryDay (req, res, next) {
+    const user_id = res.locals.user.user_id;
+    const selectedDate = req.body.selectedDate; //YYYY-MM-DD
+
+    if (!req.body.user_id || !req.body.selectedDate ) {
+        return res.json({ status: 'error', message: 'Please provide user_id and selectedDate.' });
+    }
+
+    database.executeQuery (
+        'SELECT * FROM Transactions WHERE user_id = ? AND DATE(transaction_datetime) = ?',
+        [user_id , selectedDate],
+        function (err , transactions){
+            if (err) {
+                res.json({ status: 'error', message: err });
+                return;
+            }
+            if (transactions.length === 0) {
+                res.json({ status: 'error', message: 'No transactions found for the selected date.' });
+                return;
+            }
+            res.json({ status: 'ok', user_id: {transaction : selectedDate ,transactions }});
         }
     )
 }
 
+// ==summary Selected Month==
+
+// ==summary Selected Year==
+
 router.post('/record', jsonParser, extendToken ,record);
 router.post('/summarytoday', jsonParser, extendToken , summaryToday);
+router.post('/summaryday', jsonParser, extendToken , summaryDay);
 
 module.exports = router;
