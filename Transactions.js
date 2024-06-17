@@ -186,11 +186,19 @@ function summaryDay(req, res, next) {
 }
 
 // ==summary Selected Month==
+function summaryMonth (req , res, next) {
+    const user_id = res.locals.user.user_id;
+    const selectedMonth = req.body.selectedMonth;
+
+    if (!req.body.user_id || !req.body.selectedMonth) {
+        return res.json({ status: 'error', message: 'Please provide user_id and selectedMonth.' });
+    }
+}
 
 // ==summary Selected Year==
 
 router.post('/record', jsonParser, extendToken ,record);
-router.post('/summarytoday', jsonParser, extendToken , summaryToday);
-router.post('/summaryday', jsonParser, extendToken , summaryDay);
+router.get('/summarytoday', jsonParser, extendToken , summaryToday);
+router.get('/summaryday', jsonParser, extendToken , summaryDay);
 
 module.exports = router;
