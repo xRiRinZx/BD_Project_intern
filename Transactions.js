@@ -10,6 +10,41 @@ const extendToken = require('./authen');
 
 dotenv.config();
 
+function createSummaryQuery(user_id, date) {
+    return `
+        SELECT 
+            Transactions.categorie_id, 
+            SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
+            SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
+        FROM
+            Transactions
+        JOIN
+            Categories ON Transactions.categorie_id = Categories.categorie_id
+        WHERE
+            Transactions.user_id = ${user_id} AND DATE(Transactions.transaction_datetime) = '${date}'
+        GROUP BY
+            Transactions.categorie_id;
+    `;
+}
+
+function createTransactionsQuery(user_id, date) {
+    return `
+        SELECT 
+            Transactions.transactions_id,
+            Transactions.amount,
+            Transactions.note,
+            Transactions.transaction_datetime,
+            Categories.name AS category_name,
+            Categories.type AS category_type
+        FROM
+            Transactions
+        JOIN
+            Categories ON Transactions.categorie_id = Categories.categorie_id
+        WHERE
+            Transactions.user_id = ${user_id} AND DATE(Transactions.transaction_datetime) = '${date}';
+    `;
+}
+
 // ==Record Transactions==
 function record (req ,res ,next) {
     if (!req.body.user_id || !req.body.categorie_id || !req.body.amount || !req.body.transaction_datetime) {
@@ -39,37 +74,8 @@ function summaryToday (req, res, next){
         return res.json({ status: 'error', message: 'No User.' });
     }
     const today = new Date().toISOString().split('T')[0];
-
-    const summaryQuery = `
-        SELECT 
-            Transactions.categorie_id, 
-            SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
-            SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
-        FROM
-            Transactions
-        JOIN
-            Categories ON Transactions.categorie_id = Categories.categorie_id
-        WHERE
-            Transactions.user_id = ? AND DATE(Transactions.transaction_datetime) = ?
-        GROUP BY
-            Transactions.categorie_id;
-    `;
-
-    const transactionsQuery = `
-        SELECT 
-            Transactions.transactions_id,
-            Transactions.amount,
-            Transactions.note,
-            Transactions.transaction_datetime,
-            Categories.name AS category_name,
-            Categories.type AS category_type
-        FROM
-            Transactions
-        JOIN
-            Categories ON Transactions.categorie_id = Categories.categorie_id
-        WHERE
-            Transactions.user_id = ? AND DATE(Transactions.transaction_datetime) = ?;
-    `;
+    const summaryQuery = createSummaryQuery(user_id, today);
+    const transactionsQuery = createTransactionsQuery(user_id, today);
 
     database.executeQuery(
         summaryQuery,
@@ -128,37 +134,9 @@ function summaryDay(req, res, next) {
         return res.json({ status: 'error', message: 'Please provide user_id and selectedDate.' });
     }
 
-    const summaryQuery = `
-        SELECT 
-            Transactions.categorie_id, 
-            SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
-            SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
-        FROM
-            Transactions
-        JOIN
-            Categories ON Transactions.categorie_id = Categories.categorie_id
-        WHERE
-            Transactions.user_id = ? AND DATE(Transactions.transaction_datetime) = ?
-        GROUP BY
-            Transactions.categorie_id;
-    `;
-
-    const transactionsQuery = `
-        SELECT 
-            Transactions.transactions_id,
-            Transactions.amount,
-            Transactions.note,
-            Transactions.transaction_datetime,
-            Categories.name AS category_name,
-            Categories.type AS category_type
-        FROM
-            Transactions
-        JOIN
-            Categories ON Transactions.categorie_id = Categories.categorie_id
-        WHERE
-            Transactions.user_id = ? AND DATE(Transactions.transaction_datetime) = ?;
-    `;
-
+    const summaryQuery = createSummaryQuery(user_id, selectedDate);
+    const transactionsQuery = createTransactionsQuery(user_id, selectedDate);
+    
     database.executeQuery(
         summaryQuery,
         [user_id, selectedDate],
