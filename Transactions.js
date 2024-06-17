@@ -40,47 +40,171 @@ function summaryToday (req, res, next){
     }
     const today = new Date().toISOString().split('T')[0];
 
+    const summaryQuery = `
+        SELECT 
+            Transactions.categorie_id, 
+            SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
+            SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
+        FROM
+            Transactions
+        JOIN
+            Categories ON Transactions.categorie_id = Categories.categorie_id
+        WHERE
+            Transactions.user_id = ? AND DATE(Transactions.transaction_datetime) = ?
+        GROUP BY
+            Transactions.categorie_id;
+    `;
+
+    const transactionsQuery = `
+        SELECT 
+            Transactions.transactions_id,
+            Transactions.amount,
+            Transactions.note,
+            Transactions.transaction_datetime,
+            Categories.name AS category_name,
+            Categories.type AS category_type
+        FROM
+            Transactions
+        JOIN
+            Categories ON Transactions.categorie_id = Categories.categorie_id
+        WHERE
+            Transactions.user_id = ? AND DATE(Transactions.transaction_datetime) = ?;
+    `;
+
     database.executeQuery(
-        'SELECT * FROM Transactions WHERE user_id = ? AND DATE(transaction_datetime) = ?',
-        [req.body.user_id, today],
-        function (err, transactions) {
-            if (err) {
-                res.json({ status: 'error', message: err});
-                return;
-            }
-            if (transactions == 0) {
-                res.json({ status: 'error', message: 'No transactions have been recorded today.' });
-                return;
-            }
-            res.json({ status: 'ok', transactionsToday:{user : req.body.user_id ,transactions}});
-        } 
-    )
-}
-
-// ==summary Selected Day==
-function summaryDay (req, res, next) {
-    const user_id = res.locals.user.user_id;
-    const selectedDate = req.body.selectedDate; //YYYY-MM-DD
-
-    if (!req.body.user_id || !req.body.selectedDate ) {
-        return res.json({ status: 'error', message: 'Please provide user_id and selectedDate.' });
-    }
-
-    database.executeQuery (
-        'SELECT * FROM Transactions WHERE user_id = ? AND DATE(transaction_datetime) = ?',
-        [user_id , selectedDate],
-        function (err , transactions){
+        summaryQuery,
+        [user_id, today],
+        function (err, summaryResults) {
             if (err) {
                 res.json({ status: 'error', message: err });
                 return;
             }
-            if (transactions.length === 0) {
+            if (summaryResults.length === 0) {
                 res.json({ status: 'error', message: 'No transactions found for the selected date.' });
                 return;
             }
-            res.json({ status: 'ok', user_id: {transaction : selectedDate ,transactions }});
+
+            // Calculate the total income and expenses
+            let total_income = 0;
+            let total_expense = 0;
+
+            summaryResults.forEach(result => {
+                total_income += parseFloat(result.total_income) || 0;
+                total_expense += parseFloat(result.total_expense) || 0;
+            });
+
+            // Now fetch the individual transactions for the day
+            database.executeQuery(
+                transactionsQuery,
+                [user_id, today],
+                function (err, transactions) {
+                    if (err) {
+                        res.json({ status: 'error', message: err });
+                        return;
+                    }
+
+                    res.json({
+                        status: 'ok',
+                        summary: {
+                            user_id: user_id,
+                            date: today,
+                            total_income: total_income,
+                            total_expense: total_expense
+                        },
+                        transactions: transactions
+                    });
+                }
+            );
         }
-    )
+    );
+}
+
+// ==summary Selected Day==
+function summaryDay(req, res, next) {
+    const user_id = res.locals.user.user_id;
+    const selectedDate = req.body.selectedDate; // YYYY-MM-DD
+
+    if (!req.body.user_id || !req.body.selectedDate) {
+        return res.json({ status: 'error', message: 'Please provide user_id and selectedDate.' });
+    }
+
+    const summaryQuery = `
+        SELECT 
+            Transactions.categorie_id, 
+            SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
+            SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
+        FROM
+            Transactions
+        JOIN
+            Categories ON Transactions.categorie_id = Categories.categorie_id
+        WHERE
+            Transactions.user_id = ? AND DATE(Transactions.transaction_datetime) = ?
+        GROUP BY
+            Transactions.categorie_id;
+    `;
+
+    const transactionsQuery = `
+        SELECT 
+            Transactions.transactions_id,
+            Transactions.amount,
+            Transactions.note,
+            Transactions.transaction_datetime,
+            Categories.name AS category_name,
+            Categories.type AS category_type
+        FROM
+            Transactions
+        JOIN
+            Categories ON Transactions.categorie_id = Categories.categorie_id
+        WHERE
+            Transactions.user_id = ? AND DATE(Transactions.transaction_datetime) = ?;
+    `;
+
+    database.executeQuery(
+        summaryQuery,
+        [user_id, selectedDate],
+        function (err, summaryResults) {
+            if (err) {
+                res.json({ status: 'error', message: err });
+                return;
+            }
+            if (summaryResults.length === 0) {
+                res.json({ status: 'error', message: 'No transactions found for the selected date.' });
+                return;
+            }
+
+            // Calculate the total income and expenses
+            let total_income = 0;
+            let total_expense = 0;
+
+            summaryResults.forEach(result => {
+                total_income += parseFloat(result.total_income) || 0;
+                total_expense += parseFloat(result.total_expense) || 0;
+            });
+
+            // Now fetch the individual transactions for the day
+            database.executeQuery(
+                transactionsQuery,
+                [user_id, selectedDate],
+                function (err, transactions) {
+                    if (err) {
+                        res.json({ status: 'error', message: err });
+                        return;
+                    }
+
+                    res.json({
+                        status: 'ok',
+                        summary: {
+                            user_id: user_id,
+                            selectedDate: selectedDate,
+                            total_income: total_income,
+                            total_expense: total_expense
+                        },
+                        transactions: transactions
+                    });
+                }
+            );
+        }
+    );
 }
 
 // ==summary Selected Month==
