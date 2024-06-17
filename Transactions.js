@@ -201,7 +201,7 @@ function summaryMonth (req , res, next) {
             SUM(CASE WHEN Categories.name = 'เงินเดือน' THEN Transactions.amount ELSE 0 END) AS total_Salary,
             SUM(CASE WHEN Categories.name = 'รายได้พิเศษ' THEN Transactions.amount ELSE 0 END) AS total_Extra_inc,
             SUM(CASE WHEN Categories.name = 'รายได้จากการลงทุน' THEN Transactions.amount ELSE 0 END) AS total_Investment_inc,
-            SUM(CASE WHEN Categories.name = 'รายได้อื่น' THEN Transactions.amount ELSE 0 END) AS total_Oth_inc,
+            SUM(CASE WHEN Categories.name = 'รายได้อื่นๆ' THEN Transactions.amount ELSE 0 END) AS total_other_inc,
             SUM(CASE WHEN Categories.name = 'อาหาร' THEN Transactions.amount ELSE 0 END) AS total_Food,
             SUM(CASE WHEN Categories.name = 'สมัครสมาชิกรายเดือน' THEN Transactions.amount ELSE 0 END) AS total_Sub,
             SUM(CASE WHEN Categories.name = 'ช้อปปิ้ง' THEN Transactions.amount ELSE 0 END) AS total_Shop,
@@ -264,7 +264,7 @@ function summaryMonth (req , res, next) {
                         total_Salary: "0.00",
                         total_Extra_inc: "0.00",
                         total_Investment_inc: "0.00",
-                        total_Oth_inc: "0.00",
+                        total_other_inc: "0.00"
                     };
 
                     let expenseTransactions = {
@@ -280,7 +280,7 @@ function summaryMonth (req , res, next) {
                         total_Edu: "0.00",
                         total_Invest: "0.00",
                         total_Donate: "0.00",
-                        total_Oth_exp: "0.00",
+                        total_Oth_exp: "0.00"
                     };
 
                     transactions.forEach(result => {
@@ -288,7 +288,7 @@ function summaryMonth (req , res, next) {
                             if (parseFloat(result.total_Salary) > 0) incomeTransactions.total_Salary = result.total_Salary;
                             if (parseFloat(result.total_Extra_inc) > 0) incomeTransactions.total_Extra_inc = result.total_Extra_inc;
                             if (parseFloat(result.total_Investment_inc) > 0) incomeTransactions.total_Investment_inc = result.total_Investment_inc;
-                            if (parseFloat(result.total_Oth_inc) > 0) incomeTransactions.total_Oth_inc = result.total_Oth_inc;
+                            if (parseFloat(result.total_other_inc) > 0) incomeTransactions.total_other_inc = result.total_other_inc;
                         } else if (result.type === 'expenses') {
                             if (parseFloat(result.total_Food) > 0) expenseTransactions.total_Food = result.total_Food;
                             if (parseFloat(result.total_Sub) > 0) expenseTransactions.total_Sub = result.total_Sub;
@@ -336,11 +336,97 @@ function summaryMonth (req , res, next) {
 }
 
 // ==summary Selected Year==
+function summaryYear(req, res, next) {
+    const user_id = res.locals.user.user_id;
+    const selectedYear = req.body.selectedYear;
+
+    if (!req.body.user_id || !req.body.selectedYear) {
+        return res.json({ status: 'error', message: 'Please provide user_id and selectedYear.' });
+    }
+
+    const summaryQuery = createSummaryQuery(user_id, '%Y', selectedYear);
+    
+    const monthlySummaryQuery = `
+        SELECT 
+            DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') AS month,
+            SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
+            SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
+        FROM
+            Transactions
+        JOIN
+            Categories ON Transactions.categorie_id = Categories.categorie_id
+        WHERE
+            Transactions.user_id = ? AND
+            DATE_FORMAT(Transactions.transaction_datetime, '%Y') = ?
+        GROUP BY
+            DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m');
+    `;
+
+    database.executeQuery(
+        summaryQuery,
+        [user_id, selectedYear],
+        function (err, summaryResults) {
+            if (err) {
+                res.json({ status: 'error', message: err });
+                return;
+            }
+            if (summaryResults.length === 0) {
+                res.json({ status: 'error', message: 'No transactions found for the selected year.' });
+                return;
+            }
+
+            // Calculate the total income and expenses
+            let total_income = 0;
+            let total_expense = 0;
+
+            summaryResults.forEach(result => {
+                total_income += parseFloat(result.total_income) || 0;
+                total_expense += parseFloat(result.total_expense) || 0;
+            });
+
+            database.executeQuery(
+                monthlySummaryQuery,
+                [user_id, selectedYear],
+                function (err, monthlyResults) {
+                    if (err) {
+                        res.json({ status: 'error', message: err });
+                        return;
+                    }
+
+                    let monthlySummary = [];
+
+                    monthlyResults.forEach(result => {
+                        monthlySummary.push({
+                            month: result.month,
+                            total_income: parseFloat(result.total_income) || 0,
+                            total_expense: parseFloat(result.total_expense) || 0,
+                            balance: (parseFloat(result.total_income) || 0) - (parseFloat(result.total_expense) || 0)
+                        });
+                    });
+
+                    res.json({
+                        status: 'ok',
+                        summary: {
+                            user_id: user_id,
+                            year: selectedYear,
+                            total_income: total_income,
+                            total_expense: total_expense,
+                            balance: total_income - total_expense
+                        },
+                        monthly_summary: monthlySummary
+                    });
+                }
+            );
+        }
+    );
+}
+
 
 router.post('/record', jsonParser, CheckandExtendToken ,record);
 router.get('/summarytoday', jsonParser, CheckandExtendToken , summaryToday);
 router.get('/summaryday', jsonParser, CheckandExtendToken , summaryDay);
 router.get('/summarymonth', jsonParser, CheckandExtendToken , summaryMonth);
+router.get('/summaryyear', jsonParser, CheckandExtendToken , summaryYear);
 
 
 module.exports = router;
