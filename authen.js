@@ -5,7 +5,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 // == Extend Token ==
-function extendToken(req, res, next) {
+function CheckandExtendToken(req, res, next) {
     try {
         const token = req.headers.authorization.split(' ')[1];
         var decoded = jwt.verify(token, config.screct);
@@ -30,4 +30,4 @@ function extendToken(req, res, next) {
     }
 }
 
-module.exports = extendToken;
+module.exports = CheckandExtendToken;

@@ -8,7 +8,7 @@ const saltRounds = 10;
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 const config = require('./config');
-const extendToken = require('./authen');
+const CheckandExtendToken = require('./authen');
 
 dotenv.config();
 
@@ -117,7 +117,7 @@ function getUser(req, res, next) {
 
 router.post('/login', jsonParser, loginUser);
 router.post('/register', jsonParser, registerUser);
-router.get('/user', jsonParser, extendToken , getUser);
+router.get('/user', jsonParser, CheckandExtendToken , getUser);
 
 module.exports = router;
 

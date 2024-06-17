@@ -10,7 +10,7 @@ const config = require('./config');
 const database = require('./database');
 const transactionsRouter = require('./Transactions');
 const User = require('./User');
-const extendToken = require('./authen');
+const CheckandExtendToken = require('./authen');
 
 app.use(cors());
 dotenv.config();
