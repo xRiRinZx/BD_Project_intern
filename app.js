@@ -9,6 +9,7 @@ const dotenv = require('dotenv');
 const config = require('./config');
 const database = require('./database');
 const transactionsRouter = require('./Transactions');
+// const FavTransactions = require('./FavTransactions');
 const User = require('./User');
 const CheckandExtendToken = require('./authen');
 
@@ -18,6 +19,7 @@ dotenv.config();
 
 app.use('/', transactionsRouter);
 app.use('/', User);
+// app.use('/', FavTransactions)
 
 
 app.listen(3000, function () {

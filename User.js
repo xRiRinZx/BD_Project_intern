@@ -103,6 +103,25 @@ function loginUser(req, res, next) {
         )
 }
 
+// == Edit Profile ==
+function editProfile(req, res, next){
+    if (!req.body.firstname || !req.body.lastname) {
+        return res.json({ status: 'error', message: 'Please fill out the information completely.' });
+    }
+    const user_id = res.locals.user.user_id;
+
+    database.executeQuery(
+        'UPDATE User SET firstname = ? , lastname = ? WHERE user_id = ?',
+        [req.body.firstname , req.body.lastname , user_id],
+        function (err, result) {
+            if (err) {
+                res.json({ status: 'error', message: err });
+                return;
+            }
+            res.json({ status: 'ok', message: 'Edit Profile successfully' });
+        }
+    )
+}
                          
 // == Get User ==
 function getUser(req, res, next) {
@@ -118,6 +137,7 @@ function getUser(req, res, next) {
 router.post('/login', jsonParser, loginUser);
 router.post('/register', jsonParser, registerUser);
 router.get('/user', jsonParser, CheckandExtendToken , getUser);
+router.put('/edit', jsonParser, CheckandExtendToken , editProfile);
 
 module.exports = router;
 

@@ -296,6 +296,7 @@ async function summaryYear(req, res, next) {
             monthly_summary: monthlySummary 
         }
         });
+    //--------------------------------
     } catch (err) {
         res.json({ status: 'error', message: err.message })
     }
@@ -308,4 +309,6 @@ router.get('/summarymonth', jsonParser, CheckandExtendToken , summaryMonth);
 router.get('/summaryyear', jsonParser, CheckandExtendToken , summaryYear);
 
 
-module.exports = router;
+module.exports = 
+    // executeQuery,
+    router
