@@ -35,8 +35,8 @@ function createTransactionsQuery(user_id, date) {
             Transactions.amount,
             Transactions.note,
             Transactions.transaction_datetime,
-            Categories.name AS category_name,
-            Categories.type AS category_type
+            Categories.name AS categorie_name,
+            Categories.type AS categorie_type
         FROM
             Transactions
         JOIN
@@ -62,69 +62,69 @@ function record (req ,res ,next) {
                         res.json({ status: 'error', message: err });
                         return;
                     }
-                        res.json({ status: 'ok', message: 'Transaction registered successfully' });
+                        res.json({ status: 'ok', message: 'Transaction Registered Successfully' });
                     }
     )
 }
 
 // ==summary Today==
-function summaryToday (req, res, next){
-    const user_id = res.locals.user.user_id;
+// function summaryToday (req, res, next){
+//     const user_id = res.locals.user.user_id;
 
-    if (!req.body.user_id ) {
-        return res.json({ status: 'error', message: 'No User.' });
-    }
-    const today = new Date().toISOString().split('T')[0];
-    const summaryQuery = createSummaryQuery(user_id, '%Y-%m-%d', today);
-    const transactionsQuery = createTransactionsQuery(user_id, today);
+//     if (!req.body.user_id ) {
+//         return res.json({ status: 'error', message: 'No User.' });
+//     }
+//     const today = new Date().toISOString().split('T')[0];
+//     const summaryQuery = createSummaryQuery(user_id, '%Y-%m-%d', today);
+//     const transactionsQuery = createTransactionsQuery(user_id, today);
 
-    database.executeQuery(
-        summaryQuery,
-        [user_id, today],
-        function (err, summaryResults) {
-            if (err) {
-                res.json({ status: 'error', message: err });
-                return;
-            }
-            if (summaryResults.length === 0) {
-                res.json({ status: 'error', message: 'No transactions found for the selected date.' });
-                return;
-            }
+//     database.executeQuery(
+//         summaryQuery,
+//         [user_id, today],
+//         function (err, summaryResults) {
+//             if (err) {
+//                 res.json({ status: 'error', message: err });
+//                 return;
+//             }
+//             if (summaryResults.length === 0) {
+//                 res.json({ status: 'error', message: 'No transactions found for the selected date.' });
+//                 return;
+//             }
 
-            // Calculate the total income and expenses
-            let total_income = 0;
-            let total_expense = 0;
+//             // Calculate the total income and expenses
+//             let total_income = 0;
+//             let total_expense = 0;
 
-            summaryResults.forEach(result => {
-                total_income += parseFloat(result.total_income) || 0;
-                total_expense += parseFloat(result.total_expense) || 0;
-            });
+//             summaryResults.forEach(result => {
+//                 total_income += parseFloat(result.total_income) || 0;
+//                 total_expense += parseFloat(result.total_expense) || 0;
+//             });
 
-            // Now fetch the individual transactions for the day
-            database.executeQuery(
-                transactionsQuery,
-                [user_id, today],
-                function (err, transactions) {
-                    if (err) {
-                        res.json({ status: 'error', message: err });
-                        return;
-                    }
+//             // Now fetch the individual transactions for the day
+//             database.executeQuery(
+//                 transactionsQuery,
+//                 [user_id, today],
+//                 function (err, transactions) {
+//                     if (err) {
+//                         res.json({ status: 'error', message: err });
+//                         return;
+//                     }
 
-                    res.json({
-                        status: 'ok',
-                        summary: {
-                            user_id: user_id,
-                            date: today,
-                            total_income: total_income,
-                            total_expense: total_expense
-                        },
-                        transactions: transactions
-                    });
-                }
-            );
-        }
-    );
-}
+//                     res.json({
+//                         status: 'ok',
+//                         summary: {
+//                             user_id: user_id,
+//                             date: today,
+//                             total_income: total_income,
+//                             total_expense: total_expense
+//                         },
+//                         transactions: transactions
+//                     });
+//                 }
+//             );
+//         }
+//     );
+// }
 
 // ==summary Selected Day==
 function summaryDay(req, res, next) {
@@ -172,6 +172,8 @@ function summaryDay(req, res, next) {
 
                     res.json({
                         status: 'ok',
+                        message: 'Get SummaryDay Transactions Successfully',
+                        data: {
                         summary: {
                             user_id: user_id,
                             selectedDate: selectedDate,
@@ -179,6 +181,7 @@ function summaryDay(req, res, next) {
                             total_expense: total_expense
                         },
                         transactions: transactions
+                    }
                     });
                 }
             );
@@ -186,7 +189,6 @@ function summaryDay(req, res, next) {
     );
 }
 
-// ==summary Selected Month==
 function summaryMonth (req , res, next) {
     const user_id = res.locals.user.user_id;
     const selectedMonth = req.body.selectedMonth;
@@ -198,37 +200,22 @@ function summaryMonth (req , res, next) {
     const summaryTypenameQuery = `
         SELECT 
             Categories.type, 
-            SUM(CASE WHEN Categories.name = 'เงินเดือน' THEN Transactions.amount ELSE 0 END) AS total_Salary,
-            SUM(CASE WHEN Categories.name = 'รายได้พิเศษ' THEN Transactions.amount ELSE 0 END) AS total_Extra_inc,
-            SUM(CASE WHEN Categories.name = 'รายได้จากการลงทุน' THEN Transactions.amount ELSE 0 END) AS total_Investment_inc,
-            SUM(CASE WHEN Categories.name = 'รายได้อื่นๆ' THEN Transactions.amount ELSE 0 END) AS total_other_inc,
-            SUM(CASE WHEN Categories.name = 'อาหาร' THEN Transactions.amount ELSE 0 END) AS total_Food,
-            SUM(CASE WHEN Categories.name = 'สมัครสมาชิกรายเดือน' THEN Transactions.amount ELSE 0 END) AS total_Sub,
-            SUM(CASE WHEN Categories.name = 'ช้อปปิ้ง' THEN Transactions.amount ELSE 0 END) AS total_Shop,
-            SUM(CASE WHEN Categories.name = 'ค่าเดินทาง' THEN Transactions.amount ELSE 0 END) AS total_Tran,
-            SUM(CASE WHEN Categories.name = 'ท่องเที่ยว' THEN Transactions.amount ELSE 0 END) AS total_Travel,
-            SUM(CASE WHEN Categories.name = 'บิลและสาธารณูปโภค' THEN Transactions.amount ELSE 0 END) AS total_Bill,
-            SUM(CASE WHEN Categories.name = 'ความบันเทิง' THEN Transactions.amount ELSE 0 END) AS total_Entertain,
-            SUM(CASE WHEN Categories.name = 'สุขภาพ' THEN Transactions.amount ELSE 0 END) AS total_Health,
-            SUM(CASE WHEN Categories.name = 'การศึกษา' THEN Transactions.amount ELSE 0 END) AS total_Edu,
-            SUM(CASE WHEN Categories.name = 'การเงินการลงทุน' THEN Transactions.amount ELSE 0 END) AS total_Invest,
-            SUM(CASE WHEN Categories.name = 'บริจาค' THEN Transactions.amount ELSE 0 END) AS total_Danate,
-            SUM(CASE WHEN Categories.name = 'อื่นๆ' THEN Transactions.amount ELSE 0 END) AS total_Oth_exp
+            Categories.name,
+            SUM(Transactions.amount) as amount
         FROM
             Transactions
         JOIN
             Categories ON Transactions.categorie_id = Categories.categorie_id
         WHERE
             Transactions.user_id = ? AND
-                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') = ?
+            DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') = ?
         GROUP BY
-            Categories.type
+            Categories.type, Categories.name
     `;
 
     database.executeQuery(
         summaryQuery,
         [user_id, selectedMonth],
-
         function (err, summaryResults) {
             if (err) {
                 res.json({ status: 'error', message: err });
@@ -248,7 +235,7 @@ function summaryMonth (req , res, next) {
                 total_expense += parseFloat(result.total_expense) || 0;
             });
 
-            // Now fetch the individual transactions for the day
+            // Fetch the individual transactions for the month
             database.executeQuery(
                 summaryTypenameQuery,
                 [user_id, selectedMonth],
@@ -258,68 +245,26 @@ function summaryMonth (req , res, next) {
                         return;
                     }
 
-                     // Calculate the total Typename
-                     let incomeTransactions = {
-                        type: 'income',
-                        total_Salary: "0.00",
-                        total_Extra_inc: "0.00",
-                        total_Investment_inc: "0.00",
-                        total_other_inc: "0.00"
-                    };
-
-                    let expenseTransactions = {
-                        type: 'expense',
-                        total_Food: "0.00",
-                        total_Sub: "0.00",
-                        total_Shop: "0.00",
-                        total_Tran: "0.00",
-                        total_Travel: "0.00",
-                        total_Bill: "0.00",
-                        total_Entertain: "0.00",
-                        total_Health: "0.00",
-                        total_Edu: "0.00",
-                        total_Invest: "0.00",
-                        total_Donate: "0.00",
-                        total_Oth_exp: "0.00"
-                    };
+                    let incomeTransactions = { type: 'income', categories: [] };
+                    let expenseTransactions = { type: 'expense', categories: [] };
 
                     transactions.forEach(result => {
+                        let categoryData = {
+                            categorie_name: result.name,
+                            amount: parseFloat(result.amount) || 0
+                        };
+
                         if (result.type === 'income') {
-                            if (parseFloat(result.total_Salary) > 0) incomeTransactions.total_Salary = result.total_Salary;
-                            if (parseFloat(result.total_Extra_inc) > 0) incomeTransactions.total_Extra_inc = result.total_Extra_inc;
-                            if (parseFloat(result.total_Investment_inc) > 0) incomeTransactions.total_Investment_inc = result.total_Investment_inc;
-                            if (parseFloat(result.total_other_inc) > 0) incomeTransactions.total_other_inc = result.total_other_inc;
+                            incomeTransactions.categories.push(categoryData);
                         } else if (result.type === 'expenses') {
-                            if (parseFloat(result.total_Food) > 0) expenseTransactions.total_Food = result.total_Food;
-                            if (parseFloat(result.total_Sub) > 0) expenseTransactions.total_Sub = result.total_Sub;
-                            if (parseFloat(result.total_Shop) > 0) expenseTransactions.total_Shop = result.total_Shop;
-                            if (parseFloat(result.total_Tran) > 0) expenseTransactions.total_Tran = result.total_Tran;
-                            if (parseFloat(result.total_Travel) > 0) expenseTransactions.total_Travel = result.total_Travel;
-                            if (parseFloat(result.total_Bill) > 0) expenseTransactions.total_Bill = result.total_Bill;
-                            if (parseFloat(result.total_Entertain) > 0) expenseTransactions.total_Entertain = result.total_Entertain;
-                            if (parseFloat(result.total_Health) > 0) expenseTransactions.total_Health = result.total_Health;
-                            if (parseFloat(result.total_Edu) > 0) expenseTransactions.total_Edu = result.total_Edu;
-                            if (parseFloat(result.total_Invest) > 0) expenseTransactions.total_Invest = result.total_Invest;
-                            if (parseFloat(result.total_Donate) > 0) expenseTransactions.total_Donate = result.total_Donate;
-                            if (parseFloat(result.total_Oth_exp) > 0) expenseTransactions.total_Oth_exp = result.total_Oth_exp;
+                            expenseTransactions.categories.push(categoryData);
                         }
                     });
 
-                    // Remove keys with "0.00" values from the result objects
-                    for (const key in incomeTransactions) {
-                        if (incomeTransactions[key] === "0.00") {
-                            delete incomeTransactions[key];
-                        }
-                    }
-
-                    for (const key in expenseTransactions) {
-                        if (expenseTransactions[key] === "0.00") {
-                            delete expenseTransactions[key];
-                        }
-                    }
-
                     res.json({
                         status: 'ok',
+                        message: 'Get SummaryMonth Successfully',
+                        data: {
                         summary: {
                             user_id: user_id,
                             month: selectedMonth,
@@ -327,13 +272,15 @@ function summaryMonth (req , res, next) {
                             total_expense: total_expense,
                             balance: total_income - total_expense
                         },
-                        summaryType : [incomeTransactions, expenseTransactions]
+                        summary_type: [incomeTransactions, expenseTransactions]
+                    }
                     });
                 }
             );
         }
     )
 }
+
 
 // ==summary Selected Year==
 function summaryYear(req, res, next) {
@@ -405,15 +352,18 @@ function summaryYear(req, res, next) {
                     });
 
                     res.json({
-                        status: 'ok',
-                        summary: {
+                        status: 'ok', 
+                        message: 'Get SummaryYear Successfully',
+                        data:{
+                            summary: {
                             user_id: user_id,
                             year: selectedYear,
                             total_income: total_income,
                             total_expense: total_expense,
                             balance: total_income - total_expense
                         },
-                        monthly_summary: monthlySummary
+                        monthly_summary: monthlySummary 
+                    }
                     });
                 }
             );
@@ -423,7 +373,7 @@ function summaryYear(req, res, next) {
 
 
 router.post('/record', jsonParser, CheckandExtendToken ,record);
-router.get('/summarytoday', jsonParser, CheckandExtendToken , summaryToday);
+// router.get('/summarytoday', jsonParser, CheckandExtendToken , summaryToday);
 router.get('/summaryday', jsonParser, CheckandExtendToken , summaryDay);
 router.get('/summarymonth', jsonParser, CheckandExtendToken , summaryMonth);
 router.get('/summaryyear', jsonParser, CheckandExtendToken , summaryYear);

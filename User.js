@@ -93,10 +93,10 @@ function loginUser(req, res, next) {
                                 config.screct,
                                 { expiresIn: config.tokenExp }
                             );
-                            res.json({ status: 'ok', message: 'Login success', token });
+                            res.json({ status: 'ok', message: 'Login Success', data:{token} });
                             } else {
                                 // Passwords don't match, authentication failed
-                                res.json({ status: 'error', message: 'Login failed' });
+                                res.json({ status: 'error', message: 'Login Failed' });
                             }
                 })
             }
@@ -109,7 +109,7 @@ function getUser(req, res, next) {
     try {
         const token = req.headers.authorization.split(' ')[1];
         var decoded = jwt.verify(token, config.screct);
-        res.json({ status: 'ok', Data: { User: decoded }, token: res.locals.newToken });
+        res.json({ status: 'ok', message: 'Get DataUser & New TokenUser Success',data: { user: decoded , token: res.locals.newToken} });
     } catch (err) {
         res.json({ status: 'error', message: err.message });
     }
