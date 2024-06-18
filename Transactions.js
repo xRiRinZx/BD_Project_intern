@@ -27,7 +27,6 @@ function createSummaryQuery(user_id, format, date) {
     `;
 }
 
-
 function createTransactionsQuery(user_id, date) {
     return `
         SELECT 
@@ -44,6 +43,44 @@ function createTransactionsQuery(user_id, date) {
         WHERE
             Transactions.user_id = ${user_id} AND DATE(Transactions.transaction_datetime) = '${date}';
     `;
+}
+
+// Function to execute SQL query with parameters
+function executeQuery(query, params) {
+    return new Promise((resolve, reject) => {
+        database.executeQuery(query, params, (err, result) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(result);
+            }
+        });
+    });
+}
+
+// Function to process summary results
+function processSummaryResults(summaryResults) {
+    let total_income = 0;
+    let total_expense = 0;
+
+    summaryResults.forEach(result => {
+        total_income += parseFloat(result.total_income) || 0;
+        total_expense += parseFloat(result.total_expense) || 0;
+    });
+
+    return { total_income, total_expense };
+}
+
+// Function to process transactions results
+function processTransactionsResults(transactions) {
+    return transactions.map(transaction => ({
+        transactions_id: transaction.transactions_id,
+        amount: parseFloat(transaction.amount) || 0,
+        note: transaction.note,
+        transaction_datetime: transaction.transaction_datetime,
+        categorie_name: transaction.categorie_name,
+        categorie_type: transaction.categorie_type
+    }));
 }
 
 // ==Record Transactions==
@@ -67,65 +104,6 @@ function record (req ,res ,next) {
     )
 }
 
-// ==summary Today==
-// function summaryToday (req, res, next){
-//     const user_id = res.locals.user.user_id;
-
-//     if (!req.body.user_id ) {
-//         return res.json({ status: 'error', message: 'No User.' });
-//     }
-//     const today = new Date().toISOString().split('T')[0];
-//     const summaryQuery = createSummaryQuery(user_id, '%Y-%m-%d', today);
-//     const transactionsQuery = createTransactionsQuery(user_id, today);
-
-//     database.executeQuery(
-//         summaryQuery,
-//         [user_id, today],
-//         function (err, summaryResults) {
-//             if (err) {
-//                 res.json({ status: 'error', message: err });
-//                 return;
-//             }
-//             if (summaryResults.length === 0) {
-//                 res.json({ status: 'error', message: 'No transactions found for the selected date.' });
-//                 return;
-//             }
-
-//             // Calculate the total income and expenses
-//             let total_income = 0;
-//             let total_expense = 0;
-
-//             summaryResults.forEach(result => {
-//                 total_income += parseFloat(result.total_income) || 0;
-//                 total_expense += parseFloat(result.total_expense) || 0;
-//             });
-
-//             // Now fetch the individual transactions for the day
-//             database.executeQuery(
-//                 transactionsQuery,
-//                 [user_id, today],
-//                 function (err, transactions) {
-//                     if (err) {
-//                         res.json({ status: 'error', message: err });
-//                         return;
-//                     }
-
-//                     res.json({
-//                         status: 'ok',
-//                         summary: {
-//                             user_id: user_id,
-//                             date: today,
-//                             total_income: total_income,
-//                             total_expense: total_expense
-//                         },
-//                         transactions: transactions
-//                     });
-//                 }
-//             );
-//         }
-//     );
-// }
-
 // ==summary Selected Day==
 async function summaryDay(req, res, next) {
     const user_id = res.locals.user.user_id;
@@ -140,8 +118,8 @@ async function summaryDay(req, res, next) {
         const transactionsQuery = createTransactionsQuery(user_id, selectedDate);
 
         const [summaryResults, transactions] = await Promise.all([
-            executeSummaryQuery(summaryQuery, user_id, selectedDate),
-            executeTransactionsQuery(transactionsQuery, user_id, selectedDate)
+            executeQuery(summaryQuery, [user_id, selectedDate]),
+            executeQuery(transactionsQuery, [user_id, selectedDate])
         ])
         
         //After query all-------------------------
@@ -150,14 +128,8 @@ async function summaryDay(req, res, next) {
                 return;
             }
 
-            // Calculate the total income and expenses
-            let total_income = 0;
-            let total_expense = 0;
-
-            summaryResults.forEach(result => {
-                total_income += parseFloat(result.total_income) || 0;
-                total_expense += parseFloat(result.total_expense) || 0;
-            });
+            const { total_income, total_expense } = processSummaryResults(summaryResults);
+            const processedTransactions = processTransactionsResults(transactions);
 
             res.json({
                 status: 'ok',
@@ -165,44 +137,18 @@ async function summaryDay(req, res, next) {
                 data: {
                 summary: {
                     user_id: user_id,
-                    selectedDate: selectedDate,
+                    selected_date: selectedDate,
                     total_income: total_income,
                     total_expense: total_expense
                 },
-                transactions: transactions
+                transactions: processedTransactions
             }
             });
         //--------------------------------
         } catch (err) {
             res.json({ status: 'error', message: err.message })
         }
-
-        //Function summaryQuery
-        function executeSummaryQuery(summaryQuery, user_id, selectedDate) {
-            return new Promise((resolve, reject) =>{
-                database.executeQuery(summaryQuery, [user_id, selectedDate], (err, result) =>{
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve(result);
-                    }
-                })
-            })
-        }
-
-        //Function transactionQuery
-        function executeTransactionsQuery(transactionQuery, user_id, selectedDate) {
-            return new Promise((resolve, reject) =>{
-                database.executeQuery(transactionQuery, [user_id, selectedDate], (err, result) =>{
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve(result);
-                    }
-                })
-            })
-        }
-    }
+}
 
             
 // ==summary Selected Month==
@@ -233,8 +179,8 @@ async function summaryMonth (req , res, next) {
         `;
 
         const [summaryResults, transactions] = await Promise.all([
-            executeSummaryQuery(summaryQuery, user_id, selectedMonth),
-            executeTypenameQuery(summaryTypenameQuery, user_id, selectedMonth)
+            executeQuery(summaryQuery, [user_id, selectedMonth]),
+            executeQuery(summaryTypenameQuery, [user_id, selectedMonth])
         ])
 
     //After Query All---------------------
@@ -244,14 +190,9 @@ async function summaryMonth (req , res, next) {
         }
     
         // Calculate the total income and expenses
-        let total_income = 0;
-        let total_expense = 0;
-    
-        summaryResults.forEach(result => {
-            total_income += parseFloat(result.total_income) || 0;
-            total_expense += parseFloat(result.total_expense) || 0;
-        });
+        const { total_income, total_expense } = processSummaryResults(summaryResults);
 
+        // Calculate the total income and expenses Each categorie_name
         let incomeTransactions = { type: 'income', categories: [] };
         let expenseTransactions = { type: 'expense', categories: [] };
     
@@ -286,34 +227,7 @@ async function summaryMonth (req , res, next) {
     } catch(err){
         res.json({ status: 'error', message: err.message })
     }
-
-    //Function summaryQuery
-    function executeSummaryQuery(summaryQuery, user_id, selectedMonth){
-        return new Promise((resolve, reject) =>{
-            database.executeQuery(summaryQuery,[user_id, selectedMonth], (err,result)=>{
-            if (err) {
-                reject (err);
-            } else {
-                resolve (result);
-            }
-            })
-        })
-    }
-
-    //Function summaryTypenameQuery
-    function executeTypenameQuery(summaryTypenameQuery, user_id, selectedMonth){
-        return new Promise((resolve, reject) =>{
-            database.executeQuery(summaryTypenameQuery,[user_id, selectedMonth], (err,result)=>{
-            if (err){
-                reject (err);
-            } else {
-                resolve (result);
-            }
-            })
-        })
-    }
 }
-
 
 // ==summary Selected Year==
 async function summaryYear(req, res, next) {
@@ -343,8 +257,8 @@ async function summaryYear(req, res, next) {
         `;
 
         const [summaryResults, monthlyResults] = await Promise.all([
-            executeSummaryQuery(summaryQuery,user_id ,selectedYear),
-            executeMonthlySummaryQuery(monthlySummaryQuery,user_id ,selectedYear)
+            executeQuery(summaryQuery, [user_id, selectedYear]),
+            executeQuery(monthlySummaryQuery, [user_id, selectedYear])
         ])
 
     //After Query All-----------------------
@@ -354,14 +268,9 @@ async function summaryYear(req, res, next) {
         }
 
         // Calculate the total income and expenses
-        let total_income = 0;
-        let total_expense = 0;
-
-        summaryResults.forEach(result => {
-            total_income += parseFloat(result.total_income) || 0;
-            total_expense += parseFloat(result.total_expense) || 0;
-        });
+        const { total_income, total_expense } = processSummaryResults(summaryResults);
         
+        // Calculate the total income and expenses Each Monthly
         let monthlySummary = [];
     
         monthlyResults.forEach(result => {
@@ -390,37 +299,10 @@ async function summaryYear(req, res, next) {
     } catch (err) {
         res.json({ status: 'error', message: err.message })
     }
-
-    //Function summaryQuery
-    function executeSummaryQuery(summaryQuery,user_id ,selectedYear){
-        return new Promise((resolve, reject) =>{
-            database.executeQuery(summaryQuery, [user_id, selectedYear], (err,result)=>{
-                if (err) {
-                    reject (err);
-                } else {
-                    resolve (result);
-                }
-            })
-        })
-    }
-
-    //Function monthlySummaryQuery
-    function executeMonthlySummaryQuery(monthlySummaryQuery,user_id ,selectedYear){
-        return new Promise((resolve, reject)=>{
-            database.executeQuery(monthlySummaryQuery, [user_id, selectedYear], (err,result)=>{
-                if (err) {
-                    reject (err);
-                } else {
-                    resolve (result);
-                }
-            })
-        })
-    }
 }
-
+    
 
 router.post('/record', jsonParser, CheckandExtendToken ,record);
-// router.get('/summarytoday', jsonParser, CheckandExtendToken , summaryToday);
 router.get('/summaryday', jsonParser, CheckandExtendToken , summaryDay);
 router.get('/summarymonth', jsonParser, CheckandExtendToken , summaryMonth);
 router.get('/summaryyear', jsonParser, CheckandExtendToken , summaryYear);
