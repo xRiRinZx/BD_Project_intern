@@ -6,7 +6,7 @@ const database = require('./database');
 const config = require('./config');
 const dotenv = require('dotenv');
 
-const CheckandExtendToken = require('./authen');
+const AuthenAndgetUser = require('./Authen_getUser');
 
 dotenv.config();
 
@@ -86,7 +86,7 @@ async function getFavorite(req, res, next) {
 }
 
 
-router.put('/addFavorite', jsonParser ,CheckandExtendToken ,addFavorite);
-router.get('/getFavorite', jsonParser ,CheckandExtendToken ,getFavorite);
+router.put('/addFavorite', jsonParser ,AuthenAndgetUser ,addFavorite);
+router.get('/getFavorite', jsonParser ,AuthenAndgetUser ,getFavorite);
 
 module.exports = router;

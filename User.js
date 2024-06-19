@@ -8,7 +8,7 @@ const saltRounds = 10;
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 const config = require('./config');
-const CheckandExtendToken = require('./authen');
+const AuthenAndgetUser = require('./Authen_getUser');
 
 dotenv.config();
 
@@ -123,21 +123,57 @@ function editProfile(req, res, next){
     )
 }
                          
-// == Get User ==
-function getUser(req, res, next) {
+// == ExtendToken ==
+function Extend(req, res, next) {
     try {
         const token = req.headers.authorization.split(' ')[1];
         var decoded = jwt.verify(token, config.screct);
-        res.json({ status: 'ok', message: 'Get DataUser & New TokenUser Success',data: { user: decoded , token: res.locals.newToken} });
+        const user_id = res.locals.user.user_id;
+
+        database.executeQuery(
+            'SELECT user_id, email, firstname, lastname FROM User WHERE user_id = ?',
+            [user_id],
+            function (err, results) {
+                if (err) {
+                    return res.json({ status: 'error', message: err.message });
+                }
+
+                if (results.length === 0) {
+                    return res.json({ status: 'error', message: 'User not found' });
+                }
+
+                const user = results[0];
+                const newToken = jwt.sign(
+                    {
+                        user_id: user.user_id,
+                        email: user.email,
+                        firstname: user.firstname,
+                        lastname: user.lastname,
+                    },
+                    config.screct,
+                    { expiresIn: config.tokenExp }
+                );
+
+                res.setHeader('Authorization', 'Bearer ' + newToken);
+                res.locals.user = user;
+                res.locals.newToken = newToken;
+                console.log('New token:', newToken);
+                res.json({
+                    status: 'ok',
+                    message: 'Get UpdateDataUser & New TokenUser Success',
+                    data: { user, token: newToken }
+                });
+            }
+        );
     } catch (err) {
         res.json({ status: 'error', message: err.message });
     }
 }
 
+
 router.post('/login', jsonParser, loginUser);
 router.post('/register', jsonParser, registerUser);
-router.get('/user', jsonParser, CheckandExtendToken , getUser);
-router.put('/edit', jsonParser, CheckandExtendToken , editProfile);
+router.get('/user', jsonParser, AuthenAndgetUser , Extend);
+router.put('/edit', jsonParser, AuthenAndgetUser , editProfile);
 
 module.exports = router;
-

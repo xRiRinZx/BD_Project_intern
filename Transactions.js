@@ -6,7 +6,7 @@ const database = require('./database');
 const config = require('./config');
 const dotenv = require('dotenv');
 
-const CheckandExtendToken = require('./authen');
+const CheckandgetUser = require('./Authen_getUser');
 
 dotenv.config();
 
@@ -303,10 +303,10 @@ async function summaryYear(req, res, next) {
 }
     
 
-router.post('/record', jsonParser, CheckandExtendToken ,record);
-router.get('/summaryday', jsonParser, CheckandExtendToken , summaryDay);
-router.get('/summarymonth', jsonParser, CheckandExtendToken , summaryMonth);
-router.get('/summaryyear', jsonParser, CheckandExtendToken , summaryYear);
+router.post('/record', jsonParser, CheckandgetUser ,record);
+router.get('/summaryday', jsonParser, CheckandgetUser , summaryDay);
+router.get('/summarymonth', jsonParser, CheckandgetUser , summaryMonth);
+router.get('/summaryyear', jsonParser, CheckandgetUser , summaryYear);
 
 
 module.exports = 

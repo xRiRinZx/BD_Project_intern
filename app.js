@@ -11,7 +11,7 @@ const database = require('./database');
 const transactionsRouter = require('./Transactions');
 const FavTransactions = require('./FavTransactions');
 const User = require('./User');
-const CheckandExtendToken = require('./authen');
+const AuthenAndgetUser = require('./Authen_getUser');
 
 app.use(cors());
 dotenv.config();
