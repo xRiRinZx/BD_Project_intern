@@ -105,10 +105,10 @@ function loginUser(req, res, next) {
 
 // == Edit Profile ==
 function editProfile(req, res, next){
-    if (!req.body.firstname || !req.body.lastname) {
+    const user_id = res.locals.user.user_id;
+    if (!user_id || !req.body.firstname || !req.body.lastname) {
         return res.json({ status: 'error', message: 'Please fill out the information completely.' });
     }
-    const user_id = res.locals.user.user_id;
 
     database.executeQuery(
         'UPDATE User SET firstname = ? , lastname = ? WHERE user_id = ?',

@@ -85,15 +85,15 @@ function processTransactionsResults(transactions) {
 
 // ==Record Transactions==
 function record (req ,res ,next) {
-    if (!req.body.user_id || !req.body.categorie_id || !req.body.amount || !req.body.transaction_datetime) {
+    const user_id = res.locals.user.user_id;
+    if (!user_id || !req.body.categorie_id || !req.body.amount || !req.body.transaction_datetime || !req.body.fav) {
         return res.json({ status: 'error', message: 'Please fill out the information completely.' });
     }
-
-    const user_id = res.locals.user.user_id;
+    
 
     database.executeQuery(
-        'INSERT INTO Transactions (user_id , categorie_id , amount , note , transaction_datetime) VALUES (?, ?, ?, ?, ?)',
-            [req.body.user_id , req.body.categorie_id , req.body.amount , req.body.note , req.body.transaction_datetime],
+        'INSERT INTO Transactions (user_id , categorie_id , amount , note , transaction_datetime , fav) VALUES (?, ?, ?, ?, ?, ?)',
+            [req.body.user_id , req.body.categorie_id , req.body.amount , req.body.note , req.body.transaction_datetime , req.body.fav],
                 function (err, result) {
                     if (err) {
                         res.json({ status: 'error', message: err });
@@ -107,19 +107,19 @@ function record (req ,res ,next) {
 // ==summary Selected Day==
 async function summaryDay(req, res, next) {
     const user_id = res.locals.user.user_id;
-    const selectedDate = req.body.selectedDate; // YYYY-MM-DD
+    const selected_date = req.body.selected_date; // YYYY-MM-DD
 
-    if (!req.body.user_id || !req.body.selectedDate) {
+    if (!user_id || !req.body.selected_date) {
         return res.json({ status: 'error', message: 'Please provide user_id and selectedDate.' });
     }
 
     try{
-        const summaryQuery = createSummaryQuery(user_id, '%Y-%m-%d',selectedDate);
-        const transactionsQuery = createTransactionsQuery(user_id, selectedDate);
+        const summaryQuery = createSummaryQuery(user_id, '%Y-%m-%d',selected_date);
+        const transactionsQuery = createTransactionsQuery(user_id, selected_date);
 
         const [summaryResults, transactions] = await Promise.all([
-            executeQuery(summaryQuery, [user_id, selectedDate]),
-            executeQuery(transactionsQuery, [user_id, selectedDate])
+            executeQuery(summaryQuery, [user_id, selected_date]),
+            executeQuery(transactionsQuery, [user_id, selected_date])
         ])
         
         //After query all-------------------------
@@ -137,7 +137,7 @@ async function summaryDay(req, res, next) {
                 data: {
                 summary: {
                     user_id: user_id,
-                    selected_date: selectedDate,
+                    selected_date: selected_date,
                     total_income: total_income,
                     total_expense: total_expense
                 },
@@ -154,14 +154,14 @@ async function summaryDay(req, res, next) {
 // ==summary Selected Month==
 async function summaryMonth (req , res, next) {
     const user_id = res.locals.user.user_id;
-    const selectedMonth = req.body.selectedMonth;
+    const selected_month = req.body.selected_month;
 
-    if (!req.body.user_id || !req.body.selectedMonth) {
-        return res.json({ status: 'error', message: 'Please provide user_id and selectedMonth.' });
+    if (!user_id || !req.body.selected_month) {
+        return res.json({ status: 'error', message: 'Please provide user_id and selected_month' });
     }
 
     try{
-        const summaryQuery = createSummaryQuery(user_id, '%Y-%m', selectedMonth);
+        const summaryQuery = createSummaryQuery(user_id, '%Y-%m', selected_month);
         const summaryTypenameQuery = `
             SELECT 
                 Categories.type, 
@@ -179,8 +179,8 @@ async function summaryMonth (req , res, next) {
         `;
 
         const [summaryResults, transactions] = await Promise.all([
-            executeQuery(summaryQuery, [user_id, selectedMonth]),
-            executeQuery(summaryTypenameQuery, [user_id, selectedMonth])
+            executeQuery(summaryQuery, [user_id, selected_month]),
+            executeQuery(summaryTypenameQuery, [user_id, selected_month])
         ])
 
     //After Query All---------------------
@@ -215,7 +215,7 @@ async function summaryMonth (req , res, next) {
             data: {
             summary: {
                 user_id: user_id,
-                month: selectedMonth,
+                month: selected_month,
                 total_income: total_income,
                 total_expense: total_expense,
                 balance: total_income - total_expense
@@ -232,14 +232,14 @@ async function summaryMonth (req , res, next) {
 // ==summary Selected Year==
 async function summaryYear(req, res, next) {
     const user_id = res.locals.user.user_id;
-    const selectedYear = req.body.selectedYear;
+    const selected_year = req.body.selected_year;
 
-    if (!req.body.user_id || !req.body.selectedYear) {
-        return res.json({ status: 'error', message: 'Please provide user_id and selectedYear.' });
+    if (!user_id || !req.body.selected_year) {
+        return res.json({ status: 'error', message: 'Please provide user_id and selected_year.' });
     }
 
     try {
-        const summaryQuery = createSummaryQuery(user_id, '%Y', selectedYear);
+        const summaryQuery = createSummaryQuery(user_id, '%Y', selected_year);
         const monthlySummaryQuery = `
             SELECT 
                 DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') AS month,
@@ -257,8 +257,8 @@ async function summaryYear(req, res, next) {
         `;
 
         const [summaryResults, monthlyResults] = await Promise.all([
-            executeQuery(summaryQuery, [user_id, selectedYear]),
-            executeQuery(monthlySummaryQuery, [user_id, selectedYear])
+            executeQuery(summaryQuery, [user_id, selected_year]),
+            executeQuery(monthlySummaryQuery, [user_id, selected_year])
         ])
 
     //After Query All-----------------------
@@ -288,7 +288,7 @@ async function summaryYear(req, res, next) {
             data:{
                 summary: {
                 user_id: user_id,
-                year: selectedYear,
+                year: selected_year,
                 total_income: total_income,
                 total_expense: total_expense,
                 balance: total_income - total_expense
