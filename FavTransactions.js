@@ -59,7 +59,7 @@ async function addFavorite(req, res, next){
 // // ==Get Fav Transaction==
 async function getFavorite(req, res, next) {
     const user_id = res.locals.user.user_id;
-    const fav = 1;
+    const fav = req.query.fav;
     if (!user_id) {
         return res.json({ status: 'error', message: 'User not found.' });
     }
