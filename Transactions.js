@@ -107,9 +107,9 @@ function record (req ,res ,next) {
 // ==summary Selected Day==
 async function summaryDay(req, res, next) {
     const user_id = res.locals.user.user_id;
-    const selected_date = req.body.selected_date; // YYYY-MM-DD
+    const selected_date = req.query.selected_date; // YYYY-MM-DD
 
-    if (!user_id || !req.body.selected_date) {
+    if (!user_id || !selected_date) {
         return res.json({ status: 'error', message: 'Please provide user_id and selectedDate.' });
     }
 
@@ -154,9 +154,9 @@ async function summaryDay(req, res, next) {
 // ==summary Selected Month==
 async function summaryMonth (req , res, next) {
     const user_id = res.locals.user.user_id;
-    const selected_month = req.body.selected_month;
+    const selected_month = req.query.selected_month;
 
-    if (!user_id || !req.body.selected_month) {
+    if (!user_id || !req.query.selected_month) {
         return res.json({ status: 'error', message: 'Please provide user_id and selected_month' });
     }
 
@@ -232,9 +232,9 @@ async function summaryMonth (req , res, next) {
 // ==summary Selected Year==
 async function summaryYear(req, res, next) {
     const user_id = res.locals.user.user_id;
-    const selected_year = req.body.selected_year;
+    const selected_year = req.query.selected_year;
 
-    if (!user_id || !req.body.selected_year) {
+    if (!user_id || !req.query.selected_year) {
         return res.json({ status: 'error', message: 'Please provide user_id and selected_year.' });
     }
 

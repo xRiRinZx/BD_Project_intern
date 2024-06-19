@@ -57,32 +57,36 @@ async function addFavorite(req, res, next){
 }
 
 // // ==Get Fav Transaction==
-// async function getFavorite(req, res, next) {
-//     const user_id = res.locals.user.user_id;
-
-//     if (!user_id) {
-//         return res.json({ status: 'error', message: 'User not found.' });
-//     }
-
-//     try {
-//         const getFavoriteQuery =`
-//             SELECT Transactions.*
-//             FROM Transactions
-//             JOIN FavoriteTransactions ON FavoriteTransactions.transactions_id = Transactions.transactions_id
-//             WHERE FavoriteTransactions.user_id = ?
-//         `;
-
-//         await database.executeQuery(getFavoriteQuery, [user_id]);
-//         res.json({ status: 'ok', data: results });
-//         } catch (err) {
-//         res.json({ status: 'error', message: err.message });
-//         }
-//     }
-
-
+async function getFavorite(req, res, next) {
+    const user_id = res.locals.user.user_id;
+    const fav = 1;
+    if (!user_id) {
+        return res.json({ status: 'error', message: 'User not found.' });
+    }
+    try {
+        const getFavoriteQuery =`
+            SELECT transactions_id, categorie_id, amount, note
+            FROM Transactions
+            WHERE fav = ? AND user_id = ?
+        `;
+        const checkResult = await new Promise((resolve, reject) => {
+            database.executeQuery(getFavoriteQuery, [fav, user_id], (err, results) => {
+                if (err) reject(err);
+                else resolve(results);
+            });
+        });
+        // No Fav transaction
+        if (checkResult.length === 0) {
+            return res.json({ status: 'error', message: 'No Favorite transaction found' });
+        }
+        res.json({ status: 'ok', message: 'Get Favorite successfully', data:{user_id: user_id,favorite: checkResult}});
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
+    }
+}
 
 
 router.put('/addFavorite', jsonParser ,CheckandExtendToken ,addFavorite);
-// router.get('/getFavorite', jsonParser ,CheckandExtendToken ,getFavorite);
+router.get('/getFavorite', jsonParser ,CheckandExtendToken ,getFavorite);
 
 module.exports = router;
