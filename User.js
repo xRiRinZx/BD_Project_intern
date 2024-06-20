@@ -3,6 +3,8 @@ const router = express.Router();
 const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 const database = require('./database');
+const nodemailer = require('nodemailer')
+const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const saltRounds = 10;
 const jwt = require('jsonwebtoken');
@@ -41,19 +43,114 @@ function registerUser (req , res , next){
             // Hashing successful, Store in Database
             console.log('Hashed password:', hash);
             database.executeQuery(
-                'INSERT INTO User (email , password , firstname , lastname ) VALUES (?, ?, ?, ?)',
-                    [req.body.email , hash , req.body.firstname , req.body.lastname],
+                'INSERT INTO User (email , password , firstname , lastname , verification_token , is_verified) VALUES (?, ?, ?, ?, NULL , 0)',
+                    [req.body.email , hash , req.body.firstname , req.body.lastname ],
                     function (err, result) {
                         if (err) {
                             res.json({ status: 'error', message: err });
                             return;
                         }
-                        res.json({ status: 'ok', message: 'User registered successfully' });
+                        //Send verification email
+                        sendVerificationEmail({ email: req.body.email })
+                            .then(() => {
+                                console.log('Verification email sent.');
+                                res.json({ status: 'ok', message: 'User registered successfully. Please verify your email.' });
+                            })
+                            .catch((err) => {
+                                console.error('Error sending verification email:', err);
+                                res.json({ status: 'error', message: err.message });
+                            });
                     }
                 )
             })
         }
     )
+}
+
+// == sendEmailVerification ==
+async function sendVerificationEmail(user){
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const updateTokenQuery = 'UPDATE User SET verification_token = ? WHERE email = ?'
+    
+    const checkResult = await new Promise((resolve, reject)=>{
+        database.executeQuery(updateTokenQuery,[verificationToken, user.email], (err , results)=>{
+            if (err) {
+                console.error('Error updating verification token:', err);
+                reject(err);
+            } else {
+                console.log('Verification token updated in database for email:', user.email);
+                resolve(results);
+            }
+        })
+    })
+    const verificationUrl = `${process.env.API_URL}/verify-email?token=${verificationToken}&email=${user.email}`;
+    const transporter = nodemailer.createTransport({
+        service:'Gmail',
+        // host: process.env.API_URL,  // เปลี่ยนเป็น Host ของ SMTP Server ที่คุณใช้
+        // port: 465,  // เปลี่ยนเป็น Port ของ SMTP Server ที่คุณใช้ (เช่น 465 สำหรับ SSL, 587 สำหรับ TLS)
+        // secure: true,  // เปลี่ยนเป็น true หากใช้ SSL, เปลี่ยนเป็น false หากใช้ TLS
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS
+        }
+    })
+
+    //email format send
+    const mailOption = {
+        from: process.env.EMAIL_USER,
+        to: user.email,
+        subject: 'Email Verification',
+        text: `Please verify your email by clicking on the following link: ${verificationUrl}`,
+        html: `<p>Please verify your email by clicking on the following link:</p><a href="${verificationUrl}">${verificationUrl}</a>`
+    }
+
+    //send email
+    try {
+        await transporter.sendMail(mailOption);
+        console.log('Verification email sent');
+    } catch (error) {
+        console.error('Error sending verification email:', error);
+        throw error;
+    }
+}
+
+//== VerifyEmail ==
+async function VerifyEmail(req, res, next){
+    const {token, email} = req.query;
+
+    if(!token || !email) {
+        return res.json({ status: 'error', message: 'Invalid request'})
+    }
+
+    try {
+        const checkQuery = 'SELECT * FROM User WHERE email = ? AND verification_token = ?'
+        const user = await new Promise((resolve,reject)=>{
+            database.executeQuery(checkQuery,[email, token],(err,results)=>{
+                if (err) reject(err);
+                else resolve(results[0]);
+            })
+        })
+        if (!user) {
+            return res.json({ status: 'error', message: 'Invalid token or email' });
+        }
+
+        const updateQuery = 'UPDATE User SET is_verified = 1, verification_token = NULL WHERE email = ?'
+        await new Promise((resolve,reject)=>{
+            database.executeQuery(updateQuery,[email],(err,results)=>{
+                if (err) {
+                    console.error('Error updating user verification status:', err);
+                    reject(err);
+                } else {
+                    console.log('User email verified:', email);
+                    resolve(results);
+                }
+            });
+        })
+        res.redirect('/email-verified');
+    } catch (err){
+        console.error('Verification error:', err);
+        res.json({ status: 'error', message: err.message});
+    }
 }
 
 // == Login ==
@@ -71,9 +168,14 @@ function loginUser(req, res, next) {
                     return;
                 }
                 if (email.length == 0) {
-                    res.json({ status: 'error', message: 'No user found' });
+                    res.json({ status: 'error', message: 'Wrong email or password' });
                     return;
                 }
+                // Check if the user is verified
+                if (!email[0].is_verified) {
+                    return res.json({ status: 'error', message: 'Please verify your email before logging in.' });
+                }
+
                 bcrypt.compare(req.body.password, email[0].password, (err, result) => {
                     if (err) {
                         // Handle error
@@ -94,10 +196,10 @@ function loginUser(req, res, next) {
                                 { expiresIn: config.tokenExp }
                             );
                             res.json({ status: 'ok', message: 'Login Success', data:{token} });
-                            } else {
-                                // Passwords don't match, authentication failed
-                                res.json({ status: 'error', message: 'Login Failed' });
-                            }
+                    } else {
+                         // Passwords don't match, authentication failed
+                            res.json({ status: 'error', message: 'Wrong email or password' });
+                    }
                 })
             }
         )
@@ -171,8 +273,11 @@ function Extend(req, res, next) {
 }
 
 
+
+
 router.post('/login', jsonParser, loginUser);
 router.post('/register', jsonParser, registerUser);
+router.get('/verify-email', VerifyEmail);
 router.get('/user', jsonParser, AuthenAndgetUser , Extend);
 router.put('/edit', jsonParser, AuthenAndgetUser , editProfile);
 

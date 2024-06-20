@@ -27,23 +27,23 @@ function createSummaryQuery(user_id, format, date) {
     `;
 }
 
-function createTransactionsQuery(user_id, date) {
-    return `
-        SELECT 
-            Transactions.transactions_id,
-            Transactions.amount,
-            Transactions.note,
-            Transactions.transaction_datetime,
-            Categories.name AS categorie_name,
-            Categories.type AS categorie_type
-        FROM
-            Transactions
-        JOIN
-            Categories ON Transactions.categorie_id = Categories.categorie_id
-        WHERE
-            Transactions.user_id = ${user_id} AND DATE(Transactions.transaction_datetime) = '${date}';
-    `;
-}
+// function createTransactionsQuery(user_id, date) {
+//     return `
+//         SELECT 
+//             Transactions.transactions_id,
+//             Transactions.amount,
+//             Transactions.note,
+//             Transactions.transaction_datetime,
+//             Categories.name AS categorie_name,
+//             Categories.type AS categorie_type
+//         FROM
+//             Transactions
+//         JOIN
+//             Categories ON Transactions.categorie_id = Categories.categorie_id
+//         WHERE
+//             Transactions.user_id = ${user_id} AND DATE(Transactions.transaction_datetime) = '${date}';
+//     `;
+// }
 
 // Function to execute SQL query with parameters
 function executeQuery(query, params) {
@@ -83,43 +83,96 @@ function processTransactionsResults(transactions) {
     }));
 }
 
-// ==Record Transactions==
-function record (req ,res ,next) {
+// == call Table categories ==
+function getCategories(req, res, next) {
     const user_id = res.locals.user.user_id;
-    if (!user_id || !req.body.categorie_id || !req.body.amount || !req.body.transaction_datetime || !req.body.fav) {
+    if (!user_id) {
+        return res.status(400).json({ status: 'error', message: 'User ID is required.' });
+    }
+
+    database.executeQuery('SELECT * FROM Categories', [], (err, categories) => {
+        if (err) {
+            console.error('Error fetching categories:', err);
+            return res.status(500).json({ status: 'error', message: 'Failed to fetch categories.' });
+        }
+
+        res.json({ status: 'ok', message: 'Get Categories Successfully', data:{categories }});
+    });
+}
+
+
+
+// == Record Transactions ==
+function record(req, res, next) {
+    const user_id = res.locals.user.user_id;
+    const { categorie_id, amount, note, transaction_datetime, fav } = req.body;
+
+    if (!user_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
         return res.json({ status: 'error', message: 'Please fill out the information completely.' });
     }
-    
+
+    // Set note to null if it's undefined
+    const noteValue = note !== undefined ? note : null;
 
     database.executeQuery(
-        'INSERT INTO Transactions (user_id , categorie_id , amount , note , transaction_datetime , fav) VALUES (?, ?, ?, ?, ?, ?)',
-            [req.body.user_id , req.body.categorie_id , req.body.amount , req.body.note , req.body.transaction_datetime , req.body.fav],
-                function (err, result) {
-                    if (err) {
-                        res.json({ status: 'error', message: err });
-                        return;
-                    }
-                        res.json({ status: 'ok', message: 'Transaction Registered Successfully' });
-                    }
-    )
+        'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)',
+        [user_id, categorie_id, amount, noteValue, transaction_datetime, fav],
+        function (err, result) {
+            if (err) {
+                res.json({ status: 'error', message: err });
+                return;
+            }
+            res.json({ status: 'ok', message: 'Transaction Registered Successfully' });
+        }
+    );
 }
+
+
 
 // ==summary Selected Day==
 async function summaryDay(req, res, next) {
     const user_id = res.locals.user.user_id;
-    const selected_date = req.query.selected_date; // YYYY-MM-DD
+    const selected_date_start = req.query.selected_date_start; // YYYY-MM-DD
+    const selected_date_end = req.query.selected_date_end; // YYYY-MM-DD
 
-    if (!user_id || !selected_date) {
+    if (!user_id || !selected_date_start || !selected_date_end) {
         return res.json({ status: 'error', message: 'Please provide user_id and selectedDate.' });
     }
 
     try{
-        const summaryQuery = createSummaryQuery(user_id, '%Y-%m-%d',selected_date);
-        const transactionsQuery = createTransactionsQuery(user_id, selected_date);
+        const summaryQuery = 
+        `SELECT 
+            Transactions.categorie_id, 
+            SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
+            SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
+        FROM
+            Transactions
+        JOIN
+            Categories ON Transactions.categorie_id = Categories.categorie_id
+        WHERE
+            Transactions.user_id = ? AND DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d') BETWEEN ? AND ?
+        GROUP BY
+            Transactions.categorie_id`;
+
+        const transactionsQuery = `
+        SELECT 
+            Transactions.transactions_id,
+            Transactions.amount,
+            Transactions.note,
+            Transactions.transaction_datetime,
+            Categories.name AS categorie_name,
+            Categories.type AS categorie_type
+        FROM
+            Transactions
+        JOIN
+            Categories ON Transactions.categorie_id = Categories.categorie_id
+        WHERE
+            Transactions.user_id = ? AND DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d') BETWEEN ? AND ?
+    `;
 
         const [summaryResults, transactions] = await Promise.all([
-            executeQuery(summaryQuery, [user_id, selected_date]),
-            executeQuery(transactionsQuery, [user_id, selected_date])
+            executeQuery(summaryQuery, [user_id, selected_date_start, selected_date_end]),
+            executeQuery(transactionsQuery, [user_id, selected_date_start, selected_date_end])
         ])
         
         //After query all-------------------------
@@ -131,13 +184,17 @@ async function summaryDay(req, res, next) {
             const { total_income, total_expense } = processSummaryResults(summaryResults);
             const processedTransactions = processTransactionsResults(transactions);
 
+            const selected_date_range = (selected_date_start === selected_date_end) 
+            ? selected_date_start 
+            : `${selected_date_start} - ${selected_date_end}`;
+
             res.json({
                 status: 'ok',
                 message: 'Get SummaryDay Transactions Successfully',
                 data: {
                 summary: {
                     user_id: user_id,
-                    selected_date: selected_date,
+                    selected_date: selected_date_range,
                     total_income: total_income,
                     total_expense: total_expense
                 },
@@ -304,6 +361,7 @@ async function summaryYear(req, res, next) {
     
 
 router.post('/record', jsonParser, CheckandgetUser ,record);
+router.get('/getcategories', jsonParser, CheckandgetUser , getCategories);
 router.get('/summaryday', jsonParser, CheckandgetUser , summaryDay);
 router.get('/summarymonth', jsonParser, CheckandgetUser , summaryMonth);
 router.get('/summaryyear', jsonParser, CheckandgetUser , summaryYear);

@@ -56,7 +56,7 @@ async function addFavorite(req, res, next){
     }
 }
 
-// // ==Get Fav Transaction==
+ // ==Get Fav Transaction==
 async function getFavorite(req, res, next) {
     const user_id = res.locals.user.user_id;
     const fav = req.query.fav;
@@ -84,6 +84,8 @@ async function getFavorite(req, res, next) {
         res.json({ status: 'error', message: err.message });
     }
 }
+
+
 
 
 router.put('/addFavorite', jsonParser ,AuthenAndgetUser ,addFavorite);
