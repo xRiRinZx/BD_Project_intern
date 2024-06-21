@@ -27,24 +27,6 @@ function createSummaryQuery(user_id, format, date) {
     `;
 }
 
-// function createTransactionsQuery(user_id, date) {
-//     return `
-//         SELECT 
-//             Transactions.transactions_id,
-//             Transactions.amount,
-//             Transactions.note,
-//             Transactions.transaction_datetime,
-//             Categories.name AS categorie_name,
-//             Categories.type AS categorie_type
-//         FROM
-//             Transactions
-//         JOIN
-//             Categories ON Transactions.categorie_id = Categories.categorie_id
-//         WHERE
-//             Transactions.user_id = ${user_id} AND DATE(Transactions.transaction_datetime) = '${date}';
-//     `;
-// }
-
 // Function to execute SQL query with parameters
 function executeQuery(query, params) {
     return new Promise((resolve, reject) => {
@@ -126,6 +108,81 @@ function record(req, res, next) {
         }
     );
 }
+
+// == edit transaction ==
+async function editTransaction(req, res, next){
+    const user_id = res.locals.user.user_id;
+    const selected_transaction = req.body.transactions_id;
+    const { categorie_id, amount, note, transaction_datetime, fav } = req.body;
+
+    if (!user_id || !selected_transaction || !categorie_id || !amount || !transaction_datetime || !fav) {
+        return res.json({ status: 'error', message: 'Please fill out the information completely.'});
+    }
+    
+    const noteValue = note !== undefined ? note : null;
+
+    try {
+        const updateEditTransaction = 'UPDATE Transactions SET categorie_id = ? , amount = ? , note = ? ,transaction_datetime = ? , fav = ? WHERE transactions_id = ? AND user_id = ?';
+        await new Promise((resolve, reject) => {
+            database.executeQuery(updateEditTransaction, [categorie_id, amount, noteValue, transaction_datetime, fav, selected_transaction, user_id], (err, results) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(results);
+                }
+            });
+        });
+
+        res.json({ status: 'ok', message: 'Edit Transaction successfully' });
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
+    }
+}
+
+//== delete Transaction ==
+async function deleteTransaction(req, res, next){
+    const user_id = res.locals.user.user_id;
+    const selected_transaction = req.body.transactions_id;
+
+    if (!user_id || !selected_transaction) {
+        return res.json({ status: 'error', message: 'Please select Transaction.' });
+    }
+
+    try {
+        // Check if the transaction exists for the given user
+        const checkTransactionQuery = 'SELECT * FROM Transactions WHERE transactions_id = ? AND user_id = ?';
+        const transactionExists = await new Promise((resolve, reject) => {
+            database.executeQuery(checkTransactionQuery, [selected_transaction, user_id], (err, results) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(results.length > 0);
+                }
+            });
+        });
+
+        if (!transactionExists) {
+            return res.json({ status: 'error', message: 'Transaction not found for this user.' });
+        }
+
+        // Delete the transaction
+        const deleteTransactionQuery = 'DELETE FROM Transactions WHERE transactions_id = ? AND user_id = ?';
+        await new Promise((resolve, reject) => {
+            database.executeQuery(deleteTransactionQuery, [selected_transaction, user_id], (err, results) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(results);
+                }
+            });
+        });
+
+        res.json({ status: 'ok', message: 'Transaction deleted successfully' });
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
+    }
+}
+
 
 
 
@@ -365,6 +422,8 @@ router.get('/getcategories', jsonParser, CheckandgetUser , getCategories);
 router.get('/summaryday', jsonParser, CheckandgetUser , summaryDay);
 router.get('/summarymonth', jsonParser, CheckandgetUser , summaryMonth);
 router.get('/summaryyear', jsonParser, CheckandgetUser , summaryYear);
+router.put('/edit-transaction', jsonParser, CheckandgetUser , editTransaction);
+router.delete('/delete-transaction', jsonParser, CheckandgetUser , deleteTransaction);
 
 
 module.exports = 

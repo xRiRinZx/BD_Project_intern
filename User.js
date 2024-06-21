@@ -11,6 +11,8 @@ const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 const config = require('./config');
 const AuthenAndgetUser = require('./Authen_getUser');
+const { resolve } = require('path');
+const { match } = require('assert');
 
 dotenv.config();
 
@@ -99,7 +101,7 @@ async function sendVerificationEmail(user){
     const mailOption = {
         from: process.env.EMAIL_USER,
         to: user.email,
-        subject: 'Email Verification',
+        subject: '[BeChan] - Email Verification',
         text: `Please verify your email by clicking on the following link: ${verificationUrl}`,
         html: `<p>Please verify your email by clicking on the following link:</p><a href="${verificationUrl}">${verificationUrl}</a>`
     }
@@ -108,6 +110,7 @@ async function sendVerificationEmail(user){
     try {
         await transporter.sendMail(mailOption);
         console.log('Verification email sent');
+        res.json({ status: 'ok', message: 'send email successfully'})
     } catch (error) {
         console.error('Error sending verification email:', error);
         throw error;
@@ -272,13 +275,176 @@ function Extend(req, res, next) {
     }
 }
 
+// == send email ResetPassword ==
+async function requestPasswordReset(req, res, next){
+    const {email} = req.body;
+
+    if (!email) {
+        return res.json({ status: 'error', message: 'Email is required'});
+    }
+    const resetToken = crypto.randomBytes(3).toString('hex');
+    const tokenExpiry = Date.now() + 30 * 60 * 1000; // 30 minutes 
+
+    const updateTokenQuery = 'UPDATE User SET reset_token = ?,token_expiry = ? WHERE email = ?'
+        await new Promise((resolve,reject)=>{
+            database.executeQuery(updateTokenQuery,[resetToken, tokenExpiry, email],(err,results)=>{
+                if (err) {
+                    console.error('Error updating ResetPassword token:', err);
+                    reject(err);
+                    return res.json({ status: 'error', message: 'Error updating ResetPassword token'})
+                } else {
+                    console.log('ResetPassword token updated in database for email:', email);
+                    resolve(results);
+                }
+            })
+        })
+
+        const transporter = nodemailer.createTransport({
+            service: 'Gmail',
+            auth: {
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS,
+            },
+        })
+        const mailOption = {
+            from: process.env.EMAIL_USER,
+            to: email,
+            subject: '[BeChan] - ResetPassword OTP',
+            text: `Your password reset token is: ${resetToken}`,
+            html: `<p>Your password reset token is: <strong>${resetToken}</strong></p>`,
+        }
+
+        //send email
+        try{
+            await transporter.sendMail(mailOption);
+            console.log('Password reset email sent');
+            res.json({ status: 'ok', message: 'send email successfully'})
+        } catch (err) {
+            console.error('Error sending Password reset email:', err);
+            res.json({ status: 'error', message: 'Error sending Password reset email'})
+            throw err;
+        }
+}
+
+// == Verify ResetToken ==
+async function verifyResetPassword(req, res, next){
+    const { token, email } = req.body;
+
+    if (!token || !email ) {
+        return res.json({ status: 'error', message: 'Please fill out the information completely.'});
+    }
+
+    try {
+        const checkTokenQuery = 'SELECT * FROM User WHERE email = ? AND reset_token = ? AND token_expiry > ?';
+        const user = await new Promise((resolve,reject)=>{
+            database.executeQuery(checkTokenQuery,[email ,token ,Date.now()],(err,results)=>{
+                if (err) reject(err);
+                else resolve(results[0]);
+            })
+        })
+        res.json({ status: 'ok', message: 'Token is valid' });
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
+    }
+}
+
+//== resetPassword ==
+async function resetPassword(req, res, next){
+    const { token, email, new_password} = req.body;
+
+    if (!token || !email || !new_password){
+        return res.json({ status: 'error', message:'Please fill out the information completely.'})
+    }
+
+    try {
+        const checkTokenQuery = 'SELECT * FROM User WHERE email = ? AND reset_token = ? AND token_expiry > ?';
+        const user = await new Promise((resolve,reject)=>{
+            database.executeQuery(checkTokenQuery,[email, token, Date.now()],(err,results)=>{
+                if (err) reject(err);
+                else resolve(results[0]);
+            })
+        });
+        if (!user) {
+            return res.json({ status: 'error', message: 'Invalid or expired token' });
+        }
+        const hashedPassword = await bcrypt.hash(new_password, saltRounds);
+        const updatePasswordQuery = 'UPDATE User SET password = ?, reset_token = NULL, token_expiry = NULL WHERE email = ?';
+        await new Promise((resolve,reject)=>{
+            database.executeQuery(updatePasswordQuery, [hashedPassword, email], (err, results)=>{
+                if (err) {
+                    console.error('Error updating hashPassword :', err);
+                    reject(err);
+                    return res.json({ status: 'error', message: 'Error updating hashPassword' });
+                } else {
+                    console.log('hashPassword updated in database for email:', user.email);
+                    resolve(results);
+                }
+            })
+        })
+        res.json({ status: 'ok', message: 'Password has been reset successfully' });
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
+    }
+}
+
+// == change Password ==
+async function changePassword(req, res, next){
+    const user_id = res.locals.user.user_id;
+    const {old_password , new_password} = req.body;
+
+    if (!user_id || !old_password || !new_password) {
+        return res.json({ status: 'error', message: 'Please fill out the information completely.' });
+    }
+     try{
+        const getUserQuery = 'SELECT * FROM User WHERE user_id = ?';
+        const user = await new Promise((resolve,reject)=>{
+            database.executeQuery(getUserQuery,[user_id],(err, results)=>{
+                if (err) reject(err);
+                else resolve(results[0]);
+            })
+        })
+        if (!user) {
+            return res.json({ status: 'error', message: 'User not found.' });
+        }
+
+        //check password
+        const match = await bcrypt.compare(old_password, user.password);
+        if (!match) {
+            return res.json({ status: 'error', message: 'Old password is incorrect.' });
+        }
+        const hashedPassword = await bcrypt.hash(new_password , saltRounds);
+
+        //Update to database
+        const updatePasswordQuery = 'UPDATE User SET password = ? WHERE user_id = ?';
+        await new Promise((resolve,reject)=>{
+            database.executeQuery(updatePasswordQuery, [hashedPassword, user_id],(err,results)=>{
+                if (err){
+                    console.error('Error updating password', err);
+                    res.json({ status: 'error', message: 'Error updating password'})
+                    reject(err);
+                } else {
+                    console.log('Password update in database for user_id:', user_id);
+                    resolve(results);
+                }
+            })
+        })
+        res.json({ status: 'ok', message: 'Password has been changed successfully'});
+     } catch (err) {
+        console.error('Error changing password:', err);
+        res.json({ status: 'error', message: err.message})
+     }
 
 
+}
 
 router.post('/login', jsonParser, loginUser);
 router.post('/register', jsonParser, registerUser);
 router.get('/verify-email', VerifyEmail);
 router.get('/user', jsonParser, AuthenAndgetUser , Extend);
 router.put('/edit', jsonParser, AuthenAndgetUser , editProfile);
+router.post('/req-password-reset', jsonParser, requestPasswordReset);
+router.post('/setnewpassword', jsonParser, resetPassword);
+router.post('/verify-token-password', jsonParser, verifyResetPassword);
+router.post('/changepassword', jsonParser, AuthenAndgetUser, changePassword);
 
 module.exports = router;
