@@ -5,6 +5,9 @@ const router = express.Router();
 var bodyParser = require('body-parser');
 var jsonParser = bodyParser.json();
 const dotenv = require('dotenv');
+const moment = require('moment-timezone');
+
+moment.tz.setDefault('Asia/Bangkok');
 
 const config = require('./config');
 const database = require('./database');

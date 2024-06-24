@@ -5,8 +5,10 @@ const jsonParser = bodyParser.json();
 const database = require('./database');
 const config = require('./config');
 const dotenv = require('dotenv');
+const moment = require('moment-timezone');
 
 const CheckandgetUser = require('./Authen_getUser');
+moment.tz.setDefault('Asia/Bangkok');
 
 dotenv.config();
 

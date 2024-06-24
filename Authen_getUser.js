@@ -1,6 +1,9 @@
 const jwt = require('jsonwebtoken');
 const config = require('./config');
 const dotenv = require('dotenv');
+const moment = require('moment-timezone');
+
+moment.tz.setDefault('Asia/Bangkok');
 
 dotenv.config();
 
