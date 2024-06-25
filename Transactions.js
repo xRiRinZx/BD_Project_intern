@@ -8,9 +8,9 @@ const dotenv = require('dotenv');
 const moment = require('moment-timezone');
 
 const CheckandgetUser = require('./Authen_getUser');
-moment.tz.setDefault('Asia/Bangkok');
 
 dotenv.config();
+moment.tz.setDefault(config.timezone);
 
 function createSummaryQuery(user_id, format, date) {
     return `
@@ -59,32 +59,13 @@ function processSummaryResults(summaryResults) {
 function processTransactionsResults(transactions) {
     return transactions.map(transaction => ({
         transactions_id: transaction.transactions_id,
-        amount: parseFloat(transaction.amount) || 0,
+        amount: parseFloat(transaction.amount).toFixed(2) || 0,
         note: transaction.note,
-        transaction_datetime: transaction.transaction_datetime,
+        transaction_datetime: moment(transaction.transaction_datetime).format('YYYY-MM-DD HH:mm:ss'),
         categorie_name: transaction.categorie_name,
         categorie_type: transaction.categorie_type
     }));
 }
-
-// == call Table categories ==
-function getCategories(req, res, next) {
-    const user_id = res.locals.user.user_id;
-    if (!user_id) {
-        return res.status(400).json({ status: 'error', message: 'User ID is required.' });
-    }
-
-    database.executeQuery('SELECT * FROM Categories', [], (err, categories) => {
-        if (err) {
-            console.error('Error fetching categories:', err);
-            return res.status(500).json({ status: 'error', message: 'Failed to fetch categories.' });
-        }
-
-        res.json({ status: 'ok', message: 'Get Categories Successfully', data:{categories }});
-    });
-}
-
-
 
 // == Record Transactions ==
 function record(req, res, next) {
@@ -94,13 +75,13 @@ function record(req, res, next) {
     if (!user_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
         return res.json({ status: 'error', message: 'Please fill out the information completely.' });
     }
-
+    const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
     // Set note to null if it's undefined
     const noteValue = note !== undefined ? note : null;
 
     database.executeQuery(
         'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)',
-        [user_id, categorie_id, amount, noteValue, transaction_datetime, fav],
+        [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, fav],
         function (err, result) {
             if (err) {
                 res.json({ status: 'error', message: err });
@@ -122,11 +103,28 @@ async function editTransaction(req, res, next){
     }
     
     const noteValue = note !== undefined ? note : null;
+    const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
 
     try {
+        // Check if the transaction exists for the given user
+        const checkTransactionQuery = 'SELECT * FROM Transactions WHERE transactions_id = ? AND user_id = ?';
+        const transactionExists = await new Promise((resolve, reject) => {
+            database.executeQuery(checkTransactionQuery, [selected_transaction, user_id], (err, results) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(results.length > 0);
+                }
+            });
+        });
+
+        if (!transactionExists) {
+            return res.json({ status: 'error', message: 'Transaction not found for this user.' });
+        }
+
         const updateEditTransaction = 'UPDATE Transactions SET categorie_id = ? , amount = ? , note = ? ,transaction_datetime = ? , fav = ? WHERE transactions_id = ? AND user_id = ?';
         await new Promise((resolve, reject) => {
-            database.executeQuery(updateEditTransaction, [categorie_id, amount, noteValue, transaction_datetime, fav, selected_transaction, user_id], (err, results) => {
+            database.executeQuery(updateEditTransaction, [categorie_id, amount, noteValue, transactionDatetimeThai, fav, selected_transaction, user_id], (err, results) => {
                 if (err) {
                     reject(err);
                 } else {
@@ -135,7 +133,7 @@ async function editTransaction(req, res, next){
             });
         });
 
-        res.json({ status: 'ok', message: 'Edit Transaction successfully' });
+        res.json({ status: 'ok', message: 'Edit Transaction successfully.' });
     } catch (err) {
         res.json({ status: 'error', message: err.message });
     }
@@ -179,7 +177,7 @@ async function deleteTransaction(req, res, next){
             });
         });
 
-        res.json({ status: 'ok', message: 'Transaction deleted successfully' });
+        res.json({ status: 'ok', message: 'Transaction deleted Successfully' });
     } catch (err) {
         res.json({ status: 'error', message: err.message });
     }
@@ -254,8 +252,8 @@ async function summaryDay(req, res, next) {
                 summary: {
                     user_id: user_id,
                     selected_date: selected_date_range,
-                    total_income: total_income,
-                    total_expense: total_expense
+                    total_income: total_income.toFixed(2),
+                    total_expense: total_expense.toFixed(2)
                 },
                 transactions: processedTransactions
             }
@@ -311,18 +309,22 @@ async function summaryMonth (req , res, next) {
         // Calculate the total income and expenses Each categorie_name
         let incomeTransactions = { type: 'income', categories: [] };
         let expenseTransactions = { type: 'expense', categories: [] };
+        let tagTransactions = { type: 'tag', categories: [] };
     
         transactions.forEach(result => {
             let categoryData = {
                 categorie_name: result.name,
-                amount: parseFloat(result.amount) || 0
+                amount: parseFloat(result.amount).toFixed(2) || 0
             };
     
             if (result.type === 'income') {
                 incomeTransactions.categories.push(categoryData);
             } else if (result.type === 'expenses') {
                 expenseTransactions.categories.push(categoryData);
+            } else if (result.type === 'tag') {
+                tagTransactions.categories.push(categoryData);
             }
+
         });
     
         res.json({
@@ -332,11 +334,11 @@ async function summaryMonth (req , res, next) {
             summary: {
                 user_id: user_id,
                 month: selected_month,
-                total_income: total_income,
-                total_expense: total_expense,
-                balance: total_income - total_expense
+                total_income: total_income.toFixed(2),
+                total_expense: total_expense.toFixed(2),
+                balance: (total_income - total_expense).toFixed(2)
             },
-            summary_type: [incomeTransactions, expenseTransactions]
+            summary_type: [incomeTransactions, expenseTransactions ,tagTransactions]
         }
         });
     //--------------------------------
@@ -369,6 +371,8 @@ async function summaryYear(req, res, next) {
                 Transactions.user_id = ? AND
                 DATE_FORMAT(Transactions.transaction_datetime, '%Y') = ?
             GROUP BY
+                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m')
+            ORDER BY
                 DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m');
         `;
 
@@ -392,9 +396,9 @@ async function summaryYear(req, res, next) {
         monthlyResults.forEach(result => {
             monthlySummary.push({
                 month: result.month,
-                total_income: parseFloat(result.total_income) || 0,
-                total_expense: parseFloat(result.total_expense) || 0,
-                balance: (parseFloat(result.total_income) || 0) - (parseFloat(result.total_expense) || 0)
+                total_income: parseFloat(result.total_income).toFixed(2) || 0,
+                total_expense: parseFloat(result.total_expense).toFixed(2) || 0,
+                balance: ((parseFloat(result.total_income) || 0) - (parseFloat(result.total_expense) || 0)).toFixed(2)
             });
         });
     
@@ -405,9 +409,9 @@ async function summaryYear(req, res, next) {
                 summary: {
                 user_id: user_id,
                 year: selected_year,
-                total_income: total_income,
-                total_expense: total_expense,
-                balance: total_income - total_expense
+                total_income: total_income.toFixed(2),
+                total_expense: total_expense.toFixed(2),
+                balance: (total_income - total_expense).toFixed(2)
             },
             monthly_summary: monthlySummary 
         }
@@ -420,7 +424,6 @@ async function summaryYear(req, res, next) {
     
 
 router.post('/record', jsonParser, CheckandgetUser ,record);
-router.get('/getcategories', jsonParser, CheckandgetUser , getCategories);
 router.get('/summaryday', jsonParser, CheckandgetUser , summaryDay);
 router.get('/summarymonth', jsonParser, CheckandgetUser , summaryMonth);
 router.get('/summaryyear', jsonParser, CheckandgetUser , summaryYear);

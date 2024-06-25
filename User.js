@@ -16,7 +16,7 @@ const { match } = require('assert');
 const moment = require('moment-timezone');
 
 dotenv.config();
-moment.tz.setDefault('Asia/Bangkok');
+moment.tz.setDefault(config.timezone);
 
 
 // == Register ==

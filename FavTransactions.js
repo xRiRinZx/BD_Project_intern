@@ -8,7 +8,7 @@ const dotenv = require('dotenv');
 const moment = require('moment-timezone');
 
 const AuthenAndgetUser = require('./Authen_getUser');
-moment.tz.setDefault('Asia/Bangkok');
+moment.tz.setDefault(config.timezone);
 
 dotenv.config();
 
@@ -86,8 +86,6 @@ async function getFavorite(req, res, next) {
         res.json({ status: 'error', message: err.message });
     }
 }
-
-
 
 
 router.put('/addFavorite', jsonParser ,AuthenAndgetUser ,addFavorite);

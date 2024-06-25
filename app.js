@@ -7,22 +7,24 @@ var jsonParser = bodyParser.json();
 const dotenv = require('dotenv');
 const moment = require('moment-timezone');
 
-moment.tz.setDefault('Asia/Bangkok');
 
 const config = require('./config');
 const database = require('./database');
 const transactionsRouter = require('./Transactions');
 const FavTransactions = require('./FavTransactions');
 const User = require('./User');
+const Categories = require('./Categories');
 const AuthenAndgetUser = require('./Authen_getUser');
 
 app.use(cors());
 dotenv.config();
+moment.tz.setDefault(config.timezone);
 
 
 app.use('/', transactionsRouter);
 app.use('/', User);
 app.use('/', FavTransactions)
+app.use('/', Categories)
 
 
 app.listen(3000, function () {

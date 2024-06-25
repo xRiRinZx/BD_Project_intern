@@ -3,9 +3,9 @@ const config = require('./config');
 const dotenv = require('dotenv');
 const moment = require('moment-timezone');
 
-moment.tz.setDefault('Asia/Bangkok');
 
 dotenv.config();
+moment.tz.setDefault(config.timezone);
 
 // == Extend Token ==
 function AuthenAndgetUser(req, res, next) {
