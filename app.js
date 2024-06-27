@@ -14,6 +14,7 @@ const transactionsRouter = require('./Transactions');
 const FavTransactions = require('./FavTransactions');
 const User = require('./User');
 const Categories = require('./Categories');
+const Tags = require('./Tags');
 const AuthenAndgetUser = require('./Authen_getUser');
 
 app.use(cors());
@@ -25,6 +26,7 @@ app.use('/', transactionsRouter);
 app.use('/', User);
 app.use('/', FavTransactions)
 app.use('/', Categories)
+app.use('/', Tags)
 
 
 app.listen(3000, function () {

@@ -110,7 +110,6 @@ async function getCategories(req, res, next){
 
         let incomeCategories = [];
         let expenseCategories = [];
-        let tagCategories = [];
          
                 categorie.forEach(categorie =>{
                     const categorieData = {
@@ -123,8 +122,6 @@ async function getCategories(req, res, next){
                         incomeCategories.push(categorieData);
                     } else if (categorie.type === 'expenses') {
                         expenseCategories.push(categorieData);
-                    } else if (categorie.type === 'tag') {
-                        tagCategories.push(categorieData);
                     }
                 });
         res.json({
@@ -133,7 +130,6 @@ async function getCategories(req, res, next){
             data:{
                 income: incomeCategories,
                 expenses: expenseCategories,
-                tag: tagCategories
             }
         })
     } catch (err) {

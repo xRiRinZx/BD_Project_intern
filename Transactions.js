@@ -71,14 +71,14 @@ function processTransactionsResults(transactions) {
 function record(req, res, next) {
     const user_id = res.locals.user.user_id;
     const { categorie_id, amount, note, transaction_datetime, fav } = req.body;
-
+    
     if (!user_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
         return res.json({ status: 'error', message: 'Please fill out the information completely.' });
     }
     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
     // Set note to null if it's undefined
     const noteValue = note !== undefined ? note : null;
-
+    
     database.executeQuery(
         'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)',
         [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, fav],
@@ -91,6 +91,42 @@ function record(req, res, next) {
         }
     );
 }
+// async function record(req, res, next){
+//     const user_id = res.locals.user.user_id
+//     const { categorie_id, amount, note, transaction_datetime, fav, tag_id} = req.body
+
+//     if (!user_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
+//             return res.json({ status: 'error', message: 'Please fill out the information completely.' });
+//         }
+
+//     const noteValue = note !== undefined ? note : null;
+//     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
+//     try {
+//         //Check CategorieUser
+//         const checkCategorieUserQuery = 'SELECT * FROM Categories WHERE categorie_id = ? AND user_id = ?';
+//         const categorieExists = await executeQuery(checkCategorieUserQuery,[categorie_id, user_id]);
+//         if (categorieExists.length === 0) {
+//             return res.json({ status: 'error', message: 'Categories not found for this user.' });
+//         }
+//         //Check TagAdd?
+//         if (Array.isArray(tag_id) && tag_id.length > 0) {
+//             const checkTagsQuery = 'SELECT * FROM tags WHERE tag_id IN (?) AND user_id = ?';
+//             const tagsExists = await executeQuery(checkTagsQuery, [tag_id, user_id]);
+
+//             if (tagsExists.length !== tag_id.length) {
+//                 return res.json({ status: 'error', message: 'One or more tags do not belong to the current user.' });
+//             }
+//         }
+//         //Add To Transactions
+//         const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)'
+//         await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, fav])
+
+//         const
+
+//         } catch (err){
+
+//     }
+// }
 
 // == edit transaction ==
 async function editTransaction(req, res, next){
