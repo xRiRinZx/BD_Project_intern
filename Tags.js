@@ -112,7 +112,7 @@ async function getTags(req, res, next){
                 tag.forEach(tag =>{
                     const tagData = {
                         tag_id: tag.tag_id,
-                        name: tag.tag_name,
+                        tag_name: tag.tag_name,
                         user_id: tag.user_id
                     }
                     summaryTags.push(tagData);
@@ -133,6 +133,6 @@ async function getTags(req, res, next){
 router.post('/createTags', jsonParser, CheckandgetUser, createTags);
 router.put('/edit-tag', jsonParser, CheckandgetUser, editTags);
 router.delete('/delete-tag' ,jsonParser, CheckandgetUser, deleteTags);
-router.get('/gettags', jsonParser, CheckandgetUser , getTags);
+router.get('/getTags', jsonParser, CheckandgetUser , getTags);
 
 module.exports = router;

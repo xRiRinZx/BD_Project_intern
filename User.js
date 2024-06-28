@@ -284,6 +284,20 @@ async function requestPasswordReset(req, res, next){
     if (!email) {
         return res.json({ status: 'error', message: 'Email is required'});
     }
+    database.executeQuery(
+        'SELECT COUNT(1) as num FROM User WHERE email = ? LIMIT 1',
+        [req.body.email],
+        function(err, result) {
+            if (err) {
+                return res.json({ status: 'error', message: err });
+            }
+            // Check email Database
+            if (result[0].num == 0) {
+                console.log('Query result:', result);  
+                return res.json({ status: 'error', message: 'no registered email.' });
+            }
+    })
+
     const resetToken = crypto.randomBytes(3).toString('hex');
     const tokenExpiry = Date.now() + 30 * 60 * 1000; // 30 minutes 
 
@@ -344,6 +358,9 @@ async function verifyResetPassword(req, res, next){
                 else resolve(results[0]);
             })
         })
+        if (!user) {
+            return res.json({ status: 'error', message: 'Invalid or expired token' });
+        }
         res.json({ status: 'ok', message: 'Token is valid' });
     } catch (err) {
         res.json({ status: 'error', message: err.message });

@@ -68,112 +68,125 @@ function processTransactionsResults(transactions) {
 }
 
 // == Record Transactions ==
-function record(req, res, next) {
-    const user_id = res.locals.user.user_id;
-    const { categorie_id, amount, note, transaction_datetime, fav } = req.body;
-    
+async function record(req, res, next){
+    const user_id = res.locals.user.user_id
+    const { categorie_id, amount, note, transaction_datetime, fav, tag_id} = req.body
+
     if (!user_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
-        return res.json({ status: 'error', message: 'Please fill out the information completely.' });
-    }
-    const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
-    // Set note to null if it's undefined
-    const noteValue = note !== undefined ? note : null;
-    
-    database.executeQuery(
-        'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)',
-        [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, fav],
-        function (err, result) {
-            if (err) {
-                res.json({ status: 'error', message: err });
-                return;
-            }
-            res.json({ status: 'ok', message: 'Transaction Registered Successfully' });
+            return res.json({ status: 'error', message: 'Please fill out the information completely.' });
         }
-    );
+
+    const noteValue = note !== undefined ? note : null;
+    const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
+    try {
+        //Check CategorieUser
+        const checkCategorieUserQuery = 'SELECT * FROM Categories WHERE categorie_id = ? AND user_id = ? OR user_id IS NULL';
+        const categorieExists = await executeQuery(checkCategorieUserQuery,[categorie_id, user_id]);
+        if (categorieExists.length === 0) {
+            return res.json({ status: 'error', message: 'Categories not found for this user.' });
+        }
+        //Check TagAdd?
+        if (Array.isArray(tag_id) && tag_id.length > 0) {
+            // Convert tag_id array to a comma-separated string for the query
+            const tagIdString = tag_id.join(',');
+            const checkTagsQuery = `SELECT * FROM Tags WHERE tag_id IN (${tagIdString}) AND user_id = ?`;
+            const tagsExists = await executeQuery(checkTagsQuery, [user_id]);
+
+            if (tagsExists.length !== tag_id.length) {
+                return res.json({ status: 'error', message: 'One or more tags do not belong to the current user.' });
+            }
+        }
+        //Add To Transactions
+        const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)'
+        const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, fav])
+
+        if (!transactionInsertResult || !transactionInsertResult.insertId) {
+            throw new Error('Failed to insert transaction');
+        }
+
+        const transactions_id = transactionInsertResult.insertId;
+
+        if (Array.isArray(tag_id) && tag_id.length > 0) {
+            const values = tag_id.map(tag => [transactions_id, tag]);
+            const valuesPlaceholder = values.map(() => '(?, ?)').join(', ');
+            const flattenedValues = values.flat();
+
+            const insertMapQuery = `INSERT INTO Transactions_Tags_map (transactions_id, tag_id) VALUES ${valuesPlaceholder}`;
+            await executeQuery(insertMapQuery, flattenedValues);
+        }
+
+        res.json({ status: 'ok', message: 'Transaction Registered Successfully' });
+        } catch (err){
+            res.json({ status: 'error', message: err.message });
+    }
 }
-// async function record(req, res, next){
-//     const user_id = res.locals.user.user_id
-//     const { categorie_id, amount, note, transaction_datetime, fav, tag_id} = req.body
-
-//     if (!user_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
-//             return res.json({ status: 'error', message: 'Please fill out the information completely.' });
-//         }
-
-//     const noteValue = note !== undefined ? note : null;
-//     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
-//     try {
-//         //Check CategorieUser
-//         const checkCategorieUserQuery = 'SELECT * FROM Categories WHERE categorie_id = ? AND user_id = ?';
-//         const categorieExists = await executeQuery(checkCategorieUserQuery,[categorie_id, user_id]);
-//         if (categorieExists.length === 0) {
-//             return res.json({ status: 'error', message: 'Categories not found for this user.' });
-//         }
-//         //Check TagAdd?
-//         if (Array.isArray(tag_id) && tag_id.length > 0) {
-//             const checkTagsQuery = 'SELECT * FROM tags WHERE tag_id IN (?) AND user_id = ?';
-//             const tagsExists = await executeQuery(checkTagsQuery, [tag_id, user_id]);
-
-//             if (tagsExists.length !== tag_id.length) {
-//                 return res.json({ status: 'error', message: 'One or more tags do not belong to the current user.' });
-//             }
-//         }
-//         //Add To Transactions
-//         const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)'
-//         await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, fav])
-
-//         const
-
-//         } catch (err){
-
-//     }
-// }
 
 // == edit transaction ==
-async function editTransaction(req, res, next){
+async function editTransaction(req, res, next) {
     const user_id = res.locals.user.user_id;
-    const selected_transaction = req.body.transactions_id;
-    const { categorie_id, amount, note, transaction_datetime, fav } = req.body;
+    const { transactions_id, categorie_id, amount, note, transaction_datetime, fav, tag_id } = req.body;
 
-    if (!user_id || !selected_transaction || !categorie_id || !amount || !transaction_datetime || !fav) {
-        return res.json({ status: 'error', message: 'Please fill out the information completely.'});
+    if (!user_id || !transactions_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
+        return res.json({ status: 'error', message: 'Please fill out the information completely.' });
     }
-    
+
     const noteValue = note !== undefined ? note : null;
     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
-
     try {
-        // Check if the transaction exists for the given user
+        // Check if the transaction exists and belongs to the user
         const checkTransactionQuery = 'SELECT * FROM Transactions WHERE transactions_id = ? AND user_id = ?';
-        const transactionExists = await new Promise((resolve, reject) => {
-            database.executeQuery(checkTransactionQuery, [selected_transaction, user_id], (err, results) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(results.length > 0);
-                }
-            });
-        });
-
-        if (!transactionExists) {
+        const transactionExists = await executeQuery(checkTransactionQuery, [transactions_id, user_id]);
+        if (transactionExists.length === 0) {
             return res.json({ status: 'error', message: 'Transaction not found for this user.' });
         }
 
-        const updateEditTransaction = 'UPDATE Transactions SET categorie_id = ? , amount = ? , note = ? ,transaction_datetime = ? , fav = ? WHERE transactions_id = ? AND user_id = ?';
-        await new Promise((resolve, reject) => {
-            database.executeQuery(updateEditTransaction, [categorie_id, amount, noteValue, transactionDatetimeThai, fav, selected_transaction, user_id], (err, results) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(results);
-                }
-            });
-        });
+        // Check CategorieUser
+        const checkCategorieUserQuery = 'SELECT * FROM Categories WHERE categorie_id = ? AND (user_id = ? OR user_id IS NULL)';
+        const categorieExists = await executeQuery(checkCategorieUserQuery, [categorie_id, user_id]);
+        if (categorieExists.length === 0) {
+            return res.json({ status: 'error', message: 'Categories not found for this user.' });
+        }
 
-        res.json({ status: 'ok', message: 'Edit Transaction successfully.' });
+        // Check TagAdd?
+        if (Array.isArray(tag_id) && tag_id.length > 0) {
+            // Convert tag_id array to a comma-separated string for the query
+            const tagIdString = tag_id.join(',');
+            const checkTagsQuery = `SELECT * FROM Tags WHERE tag_id IN (${tagIdString}) AND user_id = ?`;
+            const tagsExists = await executeQuery(checkTagsQuery, [user_id]);
+
+            if (tagsExists.length !== tag_id.length) {
+                return res.json({ status: 'error', message: 'One or more tags do not belong to the current user.' });
+            }
+        }
+
+        // Update Transactions
+        const updateTransaction = 'UPDATE Transactions SET categorie_id = ?, amount = ?, note = ?, transaction_datetime = ?, fav = ? WHERE transactions_id = ? AND user_id = ?';
+        const transactionUpdateResult = await executeQuery(updateTransaction, [categorie_id, amount, noteValue, transactionDatetimeThai, fav, transactions_id, user_id]);
+
+        if (!transactionUpdateResult || transactionUpdateResult.affectedRows === 0) {
+            throw new Error('Failed to update transaction');
+        }
+
+        // Delete existing tags for the transaction
+        const deleteTagsQuery = 'DELETE FROM Transactions_Tags_map WHERE transactions_id = ?';
+        await executeQuery(deleteTagsQuery, [transactions_id]);
+
+        // Insert new tags if provided
+        if (Array.isArray(tag_id) && tag_id.length > 0) {
+            const values = tag_id.map(tag => [transactions_id, tag]);
+            const valuesPlaceholder = values.map(() => '(?, ?)').join(', ');
+            const flattenedValues = values.flat();
+
+            const insertMapQuery = `INSERT INTO Transactions_Tags_map (transactions_id, tag_id) VALUES ${valuesPlaceholder}`;
+            await executeQuery(insertMapQuery, flattenedValues);
+        }
+
+        res.json({ status: 'ok', message: 'Transaction Updated Successfully' });
     } catch (err) {
         res.json({ status: 'error', message: err.message });
     }
 }
+
 
 //== delete Transaction ==
 async function deleteTransaction(req, res, next){
@@ -220,8 +233,6 @@ async function deleteTransaction(req, res, next){
 }
 
 
-
-
 // ==summary Selected Day==
 async function summaryDay(req, res, next) {
     const user_id = res.locals.user.user_id;
@@ -229,10 +240,10 @@ async function summaryDay(req, res, next) {
     const selected_date_end = req.query.selected_date_end; // YYYY-MM-DD
 
     if (!user_id || !selected_date_start || !selected_date_end) {
-        return res.json({ status: 'error', message: 'Please provide user_id and selectedDate.' });
+        return res.json({ status: 'error', message: 'Please provide user_id and selected_date_start and selected_date_end.' });
     }
 
-    try{
+    try {
         const summaryQuery = 
         `SELECT 
             Transactions.categorie_id, 
@@ -247,58 +258,77 @@ async function summaryDay(req, res, next) {
         GROUP BY
             Transactions.categorie_id`;
 
-        const transactionsQuery = `
-        SELECT 
-            Transactions.transactions_id,
-            Transactions.amount,
-            Transactions.note,
-            Transactions.transaction_datetime,
-            Categories.name AS categorie_name,
-            Categories.type AS categorie_type
-        FROM
-            Transactions
-        JOIN
-            Categories ON Transactions.categorie_id = Categories.categorie_id
-        WHERE
-            Transactions.user_id = ? AND DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d') BETWEEN ? AND ?
-    `;
+        const transactionsQuery =
+            `SELECT 
+                Transactions.transactions_id,
+                Transactions.categorie_id,
+                Transactions.amount,
+                Transactions.note,
+                Transactions.transaction_datetime,
+                Categories.name AS categorie_name,
+                Categories.type AS categorie_type,
+                GROUP_CONCAT(CONCAT(Tags.tag_id, ':', Tags.tag_name) SEPARATOR ', ') AS tags
+            FROM
+                Transactions
+            JOIN
+                Categories ON Transactions.categorie_id = Categories.categorie_id
+            LEFT JOIN
+                Transactions_Tags_map ON Transactions.transactions_id = Transactions_Tags_map.transactions_id
+            LEFT JOIN
+                Tags ON Transactions_Tags_map.tag_id = Tags.tag_id
+            WHERE
+                Transactions.user_id = ? AND DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d') BETWEEN ? AND ?
+            GROUP BY
+                Transactions.transactions_id`;
 
-        const [summaryResults, transactions] = await Promise.all([
-            executeQuery(summaryQuery, [user_id, selected_date_start, selected_date_end]),
-            executeQuery(transactionsQuery, [user_id, selected_date_start, selected_date_end])
-        ])
-        
-        //After query all-------------------------
-            if (summaryResults.length === 0) {
-                res.json({ status: 'error', message: 'No transactions found for the selected date.' });
-                return;
-            }
+            const [summaryResults, transactions] = await Promise.all([
+                executeQuery(summaryQuery, [user_id, selected_date_start, selected_date_end]),
+                executeQuery(transactionsQuery, [user_id, selected_date_start, selected_date_end])
+            ])
 
-            const { total_income, total_expense } = processSummaryResults(summaryResults);
-            const processedTransactions = processTransactionsResults(transactions);
+        if (transactions.length === 0) {
+            return res.json({ status: 'error', message: 'No transactions found for the selected date.' });
+        }
 
-            const selected_date_range = (selected_date_start === selected_date_end) 
-            ? selected_date_start 
+        const { total_income, total_expense } = processSummaryResults(summaryResults);
+        const processedTransactions = transactions.map(transaction => ({
+            transactions_id: transaction.transactions_id,
+            categorie_id: transaction.categorie_id,
+            amount: transaction.amount,
+            note: transaction.note,
+            transaction_datetime: moment(transaction.transaction_datetime).format('YYYY-MM-DD HH:mm:ss'),
+            categorie_name: transaction.categorie_name,
+            categorie_type: transaction.categorie_type,
+            tags: transaction.tags ? transaction.tags.split(',').map(tag => {
+                const [id, name] = tag.trim().split(':');
+                return { tag_id: parseInt(id, 10), tag_name: name };
+            }) : []
+        }));
+
+        const selected_date_range = (selected_date_start === selected_date_end)
+            ? selected_date_start
             : `${selected_date_start} - ${selected_date_end}`;
 
-            res.json({
-                status: 'ok',
-                message: 'Get SummaryDay Transactions Successfully',
-                data: {
+        res.json({
+            status: 'ok',
+            message: 'Get SummaryDay Transactions Successfully',
+            data: {
                 summary: {
                     user_id: user_id,
                     selected_date: selected_date_range,
                     total_income: total_income.toFixed(2),
                     total_expense: total_expense.toFixed(2)
-                },
-                transactions: processedTransactions
-            }
-            });
-        //--------------------------------
-        } catch (err) {
-            res.json({ status: 'error', message: err.message })
+            },
+            transactions: processedTransactions
         }
+        });
+
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
+    }
 }
+
+
 
             
 // ==summary Selected Month==
@@ -316,22 +346,50 @@ async function summaryMonth (req , res, next) {
             SELECT 
                 Categories.type, 
                 Categories.name,
+                Categories.categorie_id,
+                SUM(Transactions.amount) as amount,
+                GROUP_CONCAT(CONCAT(Tags.tag_id, ':', Tags.tag_name) SEPARATOR ', ') AS tags
+            FROM
+                Transactions
+            JOIN
+                Categories ON Transactions.categorie_id = Categories.categorie_id
+            LEFT JOIN
+                Transactions_Tags_map ON Transactions.transactions_id = Transactions_Tags_map.transactions_id
+            LEFT JOIN
+                Tags ON Transactions_Tags_map.tag_id = Tags.tag_id
+            WHERE
+                Transactions.user_id = ? AND
+                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') = ?
+            GROUP BY
+                Categories.type, Categories.name ,Categories.categorie_id
+        `;
+
+        const tagSummaryQuery = `
+            SELECT 
+                Tags.tag_id,
+                Tags.tag_name,
+                Categories.type,
                 SUM(Transactions.amount) as amount
             FROM
                 Transactions
+            JOIN
+                Transactions_Tags_map ON Transactions.transactions_id = Transactions_Tags_map.transactions_id
+            JOIN
+                Tags ON Transactions_Tags_map.tag_id = Tags.tag_id
             JOIN
                 Categories ON Transactions.categorie_id = Categories.categorie_id
             WHERE
                 Transactions.user_id = ? AND
                 DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') = ?
             GROUP BY
-                Categories.type, Categories.name
+                Tags.tag_id, Tags.tag_name, Categories.type
         `;
 
-        const [summaryResults, transactions] = await Promise.all([
+        const [summaryResults, transactions, tagSummaryResults] = await Promise.all([
             executeQuery(summaryQuery, [user_id, selected_month]),
-            executeQuery(summaryTypenameQuery, [user_id, selected_month])
-        ])
+            executeQuery(summaryTypenameQuery, [user_id, selected_month]),
+            executeQuery(tagSummaryQuery, [user_id, selected_month])
+        ]);
 
     //After Query All---------------------
         if (summaryResults.length === 0) {
@@ -345,43 +403,65 @@ async function summaryMonth (req , res, next) {
         // Calculate the total income and expenses Each categorie_name
         let incomeTransactions = { type: 'income', categories: [] };
         let expenseTransactions = { type: 'expense', categories: [] };
-        let tagTransactions = { type: 'tag', categories: [] };
     
         transactions.forEach(result => {
-            let categoryData = {
+            let categorieData = {
+                categorie_id: result.categorie_id,
                 categorie_name: result.name,
-                amount: parseFloat(result.amount).toFixed(2) || 0
+                amount: parseFloat(result.amount).toFixed(2) || 0,
             };
     
             if (result.type === 'income') {
-                incomeTransactions.categories.push(categoryData);
+                incomeTransactions.categories.push(categorieData);
             } else if (result.type === 'expenses') {
-                expenseTransactions.categories.push(categoryData);
-            } else if (result.type === 'tag') {
-                tagTransactions.categories.push(categoryData);
+                expenseTransactions.categories.push(categorieData);
             }
 
         });
-    
+
+        let tagSummaries = {};
+
+        tagSummaryResults.forEach(result => {
+            if (!tagSummaries[result.tag_id]) {
+                tagSummaries[result.tag_id] = {
+                    tag_id: result.tag_id,
+                    tag_name: result.tag_name,
+                    income: 0,
+                    expense: 0
+                };
+            }
+            if (result.type === 'income') {
+                tagSummaries[result.tag_id].income += parseFloat(result.amount);
+            } else if (result.type === 'expenses') {
+                tagSummaries[result.tag_id].expense += parseFloat(result.amount);
+            }
+        });
+
         res.json({
             status: 'ok',
             message: 'Get SummaryMonth Successfully',
             data: {
-            summary: {
-                user_id: user_id,
-                month: selected_month,
-                total_income: total_income.toFixed(2),
-                total_expense: total_expense.toFixed(2),
-                balance: (total_income - total_expense).toFixed(2)
-            },
-            summary_type: [incomeTransactions, expenseTransactions ,tagTransactions]
-        }
+                summary: {
+                    user_id: user_id,
+                    month: selected_month,
+                    total_income: total_income.toFixed(2),
+                    total_expense: total_expense.toFixed(2),
+                    balance: (total_income - total_expense).toFixed(2)
+                },
+                summary_type: [incomeTransactions, expenseTransactions],
+                tag_summary: Object.values(tagSummaries).map(tagSummary => ({
+                    ...tagSummary,
+                    income: tagSummary.income.toFixed(2),
+                    expense: tagSummary.expense.toFixed(2)
+                }))
+            }
         });
     //--------------------------------
     } catch(err){
         res.json({ status: 'error', message: err.message })
     }
 }
+
 
 // ==summary Selected Year==
 async function summaryYear(req, res, next) {
