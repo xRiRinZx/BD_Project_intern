@@ -58,7 +58,7 @@ async function addFavorite(req, res, next){
     }
 }
 
- // ==Get Fav Transaction==
+// ==Get Fav Transaction==
 async function getFavorite(req, res, next) {
     const user_id = res.locals.user.user_id;
     const fav = req.query.fav;
@@ -66,26 +66,69 @@ async function getFavorite(req, res, next) {
         return res.json({ status: 'error', message: 'User not found.' });
     }
     try {
-        const getFavoriteQuery =`
-            SELECT transactions_id, categorie_id, amount, note
-            FROM Transactions
-            WHERE fav = ? AND user_id = ?
+        const getFavoriteQuery = `
+            SELECT 
+                Transactions.transactions_id,
+                Transactions.categorie_id,
+                Transactions.amount,
+                Transactions.note,
+                Transactions.fav,
+                Categories.name AS categorie_name,
+                Categories.type AS categorie_type,
+                GROUP_CONCAT(CONCAT(Tags.tag_id, ':', Tags.tag_name) SEPARATOR ', ') AS tags
+            FROM
+                Transactions
+            JOIN
+                Categories ON Transactions.categorie_id = Categories.categorie_id
+            LEFT JOIN
+                Transactions_Tags_map ON Transactions.transactions_id = Transactions_Tags_map.transactions_id
+            LEFT JOIN
+                Tags ON Transactions_Tags_map.tag_id = Tags.tag_id
+            WHERE
+                Transactions.user_id = ? AND Transactions.fav = ?
+            GROUP BY
+                Transactions.transactions_id
         `;
+
         const checkResult = await new Promise((resolve, reject) => {
-            database.executeQuery(getFavoriteQuery, [fav, user_id], (err, results) => {
+            database.executeQuery(getFavoriteQuery, [user_id, fav], (err, results) => {
                 if (err) reject(err);
                 else resolve(results);
             });
         });
+
         // No Fav transaction
         if (checkResult.length === 0) {
             return res.json({ status: 'error', message: 'No Favorite transaction found' });
         }
-        res.json({ status: 'ok', message: 'Get Favorite successfully', data:{user_id: user_id,favorite: checkResult}});
+
+        const processedTransactions = checkResult.map(transaction => ({
+            transactions_id: transaction.transactions_id,
+            categorie_id: transaction.categorie_id,
+            amount: parseFloat(transaction.amount),
+            note: transaction.note,
+            fav: transaction.fav,
+            categorie_name: transaction.categorie_name,
+            categorie_type: transaction.categorie_type,
+            tags: transaction.tags ? transaction.tags.split(',').map(tag => {
+                const [id, name] = tag.trim().split(':');
+                return { tag_id: parseInt(id, 10), tag_name: name };
+            }) : []
+        }));
+
+        res.json({
+            status: 'ok',
+            message: 'Get Favorite successfully',
+            data: {
+                user_id: user_id,
+                favorite: processedTransactions
+            }
+        });
     } catch (err) {
         res.json({ status: 'error', message: err.message });
     }
 }
+
 
 
 router.put('/addFavorite', jsonParser ,AuthenAndgetUser ,addFavorite);

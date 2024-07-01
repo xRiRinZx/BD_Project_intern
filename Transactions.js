@@ -265,6 +265,7 @@ async function summaryDay(req, res, next) {
                 Transactions.amount,
                 Transactions.note,
                 Transactions.transaction_datetime,
+                Transactions.fav,
                 Categories.name AS categorie_name,
                 Categories.type AS categorie_type,
                 GROUP_CONCAT(CONCAT(Tags.tag_id, ':', Tags.tag_name) SEPARATOR ', ') AS tags
@@ -294,9 +295,10 @@ async function summaryDay(req, res, next) {
         const processedTransactions = transactions.map(transaction => ({
             transactions_id: transaction.transactions_id,
             categorie_id: transaction.categorie_id,
-            amount: transaction.amount,
+            amount: parseFloat(transaction.amount),
             note: transaction.note,
             transaction_datetime: moment(transaction.transaction_datetime).format('YYYY-MM-DD HH:mm:ss'),
+            fav: transaction.fav,
             categorie_name: transaction.categorie_name,
             categorie_type: transaction.categorie_type,
             tags: transaction.tags ? transaction.tags.split(',').map(tag => {
@@ -316,8 +318,8 @@ async function summaryDay(req, res, next) {
                 summary: {
                     user_id: user_id,
                     selected_date: selected_date_range,
-                    total_income: total_income.toFixed(2),
-                    total_expense: total_expense.toFixed(2)
+                    total_income: parseFloat(total_income.toFixed(2)),
+                    total_expense: parseFloat(total_expense.toFixed(2))
             },
             transactions: processedTransactions
         }
@@ -328,11 +330,9 @@ async function summaryDay(req, res, next) {
     }
 }
 
-
-
             
 // ==summary Selected Month==
-async function summaryMonth (req , res, next) {
+async function summaryMonth(req, res, next) {
     const user_id = res.locals.user.user_id;
     const selected_month = req.query.selected_month;
 
@@ -340,50 +340,48 @@ async function summaryMonth (req , res, next) {
         return res.json({ status: 'error', message: 'Please provide user_id and selected_month' });
     }
 
-    try{
+    try {
         const summaryQuery = createSummaryQuery(user_id, '%Y-%m', selected_month);
         const summaryTypenameQuery = `
             SELECT 
                 Categories.type, 
                 Categories.name,
                 Categories.categorie_id,
-                SUM(Transactions.amount) as amount,
-                GROUP_CONCAT(CONCAT(Tags.tag_id, ':', Tags.tag_name) SEPARATOR ', ') AS tags
-            FROM
-                Transactions
-            JOIN
-                Categories ON Transactions.categorie_id = Categories.categorie_id
-            LEFT JOIN
-                Transactions_Tags_map ON Transactions.transactions_id = Transactions_Tags_map.transactions_id
-            LEFT JOIN
-                Tags ON Transactions_Tags_map.tag_id = Tags.tag_id
-            WHERE
-                Transactions.user_id = ? AND
-                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') = ?
-            GROUP BY
-                Categories.type, Categories.name ,Categories.categorie_id
-        `;
-
-        const tagSummaryQuery = `
-            SELECT 
-                Tags.tag_id,
-                Tags.tag_name,
-                Categories.type,
                 SUM(Transactions.amount) as amount
             FROM
                 Transactions
             JOIN
-                Transactions_Tags_map ON Transactions.transactions_id = Transactions_Tags_map.transactions_id
-            JOIN
-                Tags ON Transactions_Tags_map.tag_id = Tags.tag_id
-            JOIN
                 Categories ON Transactions.categorie_id = Categories.categorie_id
             WHERE
                 Transactions.user_id = ? AND
                 DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') = ?
             GROUP BY
-                Tags.tag_id, Tags.tag_name, Categories.type
+                Categories.type, Categories.name, Categories.categorie_id
         `;
+
+        const tagSummaryQuery = `
+        SELECT 
+            Tags.tag_id,
+            Tags.tag_name,
+            Categories.type,
+            SUM(Transactions.amount) as amount
+        FROM
+            Transactions
+        JOIN
+            Transactions_Tags_map ON Transactions.transactions_id = Transactions_Tags_map.transactions_id
+        JOIN
+            Tags ON Transactions_Tags_map.tag_id = Tags.tag_id
+        JOIN
+            Categories ON Transactions.categorie_id = Categories.categorie_id
+        WHERE
+            Transactions.user_id = ? AND
+            DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') = ? 
+            -- Ensure to filter expenses and incomes
+            AND (Categories.type = 'expenses' OR Categories.type = 'income')
+        GROUP BY
+            Tags.tag_id, Tags.tag_name, Categories.type
+    `;
+
 
         const [summaryResults, transactions, tagSummaryResults] = await Promise.all([
             executeQuery(summaryQuery, [user_id, selected_month]),
@@ -391,34 +389,37 @@ async function summaryMonth (req , res, next) {
             executeQuery(tagSummaryQuery, [user_id, selected_month])
         ]);
 
-    //After Query All---------------------
+        // After Query All---------------------
         if (summaryResults.length === 0) {
             res.json({ status: 'error', message: 'No transactions found for the selected month.' });
             return;
         }
-    
+
         // Calculate the total income and expenses
         const { total_income, total_expense } = processSummaryResults(summaryResults);
 
-        // Calculate the total income and expenses Each categorie_name
-        let incomeTransactions = { type: 'income', categories: [] };
-        let expenseTransactions = { type: 'expense', categories: [] };
-    
+        // Initialize transactionsByType
+        let transactionsByType = {
+            income: [],
+            expense: []
+        };
+
+        // Group transactions by type
         transactions.forEach(result => {
             let categorieData = {
                 categorie_id: result.categorie_id,
                 categorie_name: result.name,
-                amount: parseFloat(result.amount).toFixed(2) || 0,
+                amount: parseFloat(result.amount) || 0,
             };
-    
-            if (result.type === 'income') {
-                incomeTransactions.categories.push(categorieData);
-            } else if (result.type === 'expenses') {
-                expenseTransactions.categories.push(categorieData);
-            }
 
+            if (result.type === 'income') {
+                transactionsByType.income.push(categorieData);
+            } else if (result.type === 'expenses') {
+                transactionsByType.expense.push(categorieData);
+            }
         });
 
+        // Calculate tag summaries
         let tagSummaries = {};
 
         tagSummaryResults.forEach(result => {
@@ -430,6 +431,7 @@ async function summaryMonth (req , res, next) {
                     expense: 0
                 };
             }
+
             if (result.type === 'income') {
                 tagSummaries[result.tag_id].income += parseFloat(result.amount);
             } else if (result.type === 'expenses') {
@@ -437,6 +439,7 @@ async function summaryMonth (req , res, next) {
             }
         });
 
+        // Format and send response
         res.json({
             status: 'ok',
             message: 'Get SummaryMonth Successfully',
@@ -444,21 +447,25 @@ async function summaryMonth (req , res, next) {
                 summary: {
                     user_id: user_id,
                     month: selected_month,
-                    total_income: total_income.toFixed(2),
-                    total_expense: total_expense.toFixed(2),
-                    balance: (total_income - total_expense).toFixed(2)
+                    total_income: parseFloat(total_income.toFixed(2)),
+                    total_expense: parseFloat(total_expense.toFixed(2)),
+                    balance: parseFloat((total_income - total_expense).toFixed(2))
                 },
-                summary_type: [incomeTransactions, expenseTransactions],
+                summary_type: [
+                    { type: 'income', categories: transactionsByType.income },
+                    { type: 'expense', categories: transactionsByType.expense }
+                ],
                 tag_summary: Object.values(tagSummaries).map(tagSummary => ({
-                    ...tagSummary,
-                    income: tagSummary.income.toFixed(2),
-                    expense: tagSummary.expense.toFixed(2)
+                    tag_id: tagSummary.tag_id,
+                    tag_name: tagSummary.tag_name,
+                    income: parseFloat(tagSummary.income.toFixed(2)),
+                    expense: parseFloat(tagSummary.expense.toFixed(2))
                 }))
             }
         });
-    //--------------------------------
-    } catch(err){
-        res.json({ status: 'error', message: err.message })
+        //--------------------------------
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
     }
 }
 
@@ -512,9 +519,9 @@ async function summaryYear(req, res, next) {
         monthlyResults.forEach(result => {
             monthlySummary.push({
                 month: result.month,
-                total_income: parseFloat(result.total_income).toFixed(2) || 0,
-                total_expense: parseFloat(result.total_expense).toFixed(2) || 0,
-                balance: ((parseFloat(result.total_income) || 0) - (parseFloat(result.total_expense) || 0)).toFixed(2)
+                total_income: parseFloat(result.total_income) || 0,
+                total_expense: parseFloat(result.total_expense) || 0,
+                balance: (parseFloat(result.total_income) || 0) - (parseFloat(result.total_expense) || 0)
             });
         });
     
@@ -525,9 +532,9 @@ async function summaryYear(req, res, next) {
                 summary: {
                 user_id: user_id,
                 year: selected_year,
-                total_income: total_income.toFixed(2),
-                total_expense: total_expense.toFixed(2),
-                balance: (total_income - total_expense).toFixed(2)
+                total_income: parseFloat(total_income.toFixed(2)),
+                total_expense: parseFloat(total_expense.toFixed(2)),
+                balance: parseFloat((total_income - total_expense).toFixed(2))
             },
             monthly_summary: monthlySummary 
         }

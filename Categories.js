@@ -71,32 +71,57 @@ async function editCategories(req, res, next){
 }
 
 //== Delete UserCategories ==
-async function deleteCategories(req, res, next){
+async function deleteCategories(req, res, next) {
+    const { categorie_id } = req.body;
     const user_id = res.locals.user.user_id;
-    const username = res.locals.user.firstname;
-    const selected_categorie = req.body.categorie_id;
-
-    if (!user_id || !selected_categorie) {
-        return res.json({ status: 'error', message: 'Please select Categorie.' });
-    }
 
     try {
-        //Check if the categories exists for the given user
-        const checkCategorieUserQuery = 'SELECT * FROM Categories WHERE categorie_id = ? AND user_id = ?';
-        const categorieExists = await executeQuery(checkCategorieUserQuery,[selected_categorie, user_id]);
+        const default_income_categorie_id = 4; 
+        const default_expense_categorie_id = 16; 
+
+        // check categorie
+        const checkCategorieQuery = 'SELECT * FROM Categories WHERE categorie_id = ? AND user_id = ?';
+        const categorieExists = await executeQuery(checkCategorieQuery, [categorie_id, user_id]);
+
         if (categorieExists.length === 0) {
-            return res.json({ status: 'error', message: 'Categories not found for this user.' });
+            return res.json({ status: 'error', message: 'Categorie not found.' });
+        }
+        // check type user_id is NULL ?
+        if (categorieExists[0].user_id === null) {
+            return res.json({ status: 'error', message: 'Cannot delete a default categorie.' });
         }
 
-        // Delete CategoriesUser
-        const deleteCategoriesQuery = 'DELETE FROM Categories WHERE categorie_id = ? AND user_id = ?';
-        await executeQuery(deleteCategoriesQuery,[selected_categorie, user_id]);
-        
-        res.json({ status: 'ok', message: `Categorie deleted from User: ${username} Successfully` });
+        // check delete categorie from user_id
+        if (categorieExists[0].user_id !== user_id) {
+            return res.json({ status: 'error', message: 'Not found categorie_id from this User' });
+        }
+
+        // check type (income or expenses)
+        const categorieType = categorieExists[0].type;
+
+        let default_categorie_id;
+        if (categorieType === 'income') {
+            default_categorie_id = default_income_categorie_id;
+        } else if (categorieType === 'expenses') {
+            default_categorie_id = default_expense_categorie_id;
+        } else {
+            return res.json({ status: 'error', message: 'Unknown categorie type.' });
+        }
+
+        // Update Transactions categorie >> default_categorie_id 
+        const updateTransactionsQuery = 'UPDATE Transactions SET categorie_id = ? WHERE categorie_id = ?';
+        await executeQuery(updateTransactionsQuery, [default_categorie_id, categorie_id]);
+
+        // delete categorie
+        const deleteCategorieQuery = 'DELETE FROM Categories WHERE categorie_id = ?';
+        await executeQuery(deleteCategorieQuery, [categorie_id]);
+
+        res.json({ status: 'ok', message: 'Categorie deleted successfully and transactions updated.' });
     } catch (err) {
         res.json({ status: 'error', message: err.message });
     }
 }
+
 
 // == Get AllCategories ==
 async function getCategories(req, res, next){
