@@ -6,6 +6,7 @@ const router = express.Router();
 const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 const database = require('./database');
+const multer = require('multer');
 const config = require('./config');
 const dotenv = require('dotenv');
 const moment = require('moment-timezone');
@@ -14,6 +15,8 @@ const CheckandgetUser = require('./Authen_getUser');
 
 dotenv.config();
 moment.tz.setDefault(config.timezone);
+const upload = multer({ dest: 'uploads/' });
+const importTime = moment().format('YYYY-MM-DD HH:mm:ss');
 
 // Function to execute SQL query with parameters
 function executeQuery(query, params) {
@@ -130,6 +133,51 @@ async function exTransactionsAll(req, res, next) {
     }
 }
 
+//== Import Excel == In Progress.....
+async function importTransactionsFromExcel(user_id, filePath) {
+    try {
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(filePath);
+
+        const worksheet = workbook.worksheets[0];
+        for (const row of worksheet.getSheetValues()) {
+            const transactionData = {
+                user_id: user_id,
+                transaction_datetime: row[1] ? moment(row[1], 'DD/MM/YYYY').format('YYYY-MM-DD HH:mm:ss') : importTime,
+                categorie_id: row[2],
+                amount: row[3],
+                note: row[4],
+                fav: row[5],
+                // tags: row[7] ? row[7].split(',').map(tag => {
+                //     const [tag_id, tag_name] = tag.split(':');
+                //     return { tag_id: parseInt(tag_id), tag_name: tag_name };
+                // }) : []
+            };
+            const insertQuery = `INSERT INTO Transactions SET ?`
+            await executeQuery(insertQuery,[transactionData])
+        }
+        console.log('Import transactions completed.')
+    } catch (error) {
+        console.error('Error importing transactions:', error);
+        throw error;
+    } 
+}
+
+//== API ImportFile ==
+async function importTransactions(req, res, next){
+    const user_id = res.locals.user.user_id;
+    const filePath = req.file.path;
+
+    try {
+        await importTransactionsFromExcel(user_id, filePath);
+        res.status(200).json({ message: 'Transactions imported successfully.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error importing transactions.', error: error.message });
+    }
+}
+
+
+router.post('/import-transactions', upload.single('file'), CheckandgetUser, importTransactions)
 router.get('/getExcelUserTransactions', jsonParser, CheckandgetUser , exTransactionsAll);
 
 module.exports = router
