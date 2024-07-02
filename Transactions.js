@@ -280,7 +280,9 @@ async function summaryDay(req, res, next) {
             WHERE
                 Transactions.user_id = ? AND DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d') BETWEEN ? AND ?
             GROUP BY
-                Transactions.transactions_id`;
+                Transactions.transactions_id
+            ORDER BY
+                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d %H:%i:%s')`;;
 
             const [summaryResults, transactions] = await Promise.all([
                 executeQuery(summaryQuery, [user_id, selected_date_start, selected_date_end]),
