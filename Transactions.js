@@ -67,6 +67,7 @@ function processTransactionsResults(transactions) {
     }));
 }
 
+
 // == Record Transactions ==
 async function record(req, res, next){
     const user_id = res.locals.user.user_id
@@ -115,9 +116,9 @@ async function record(req, res, next){
             await executeQuery(insertMapQuery, flattenedValues);
         }
 
-        res.json({ status: 'ok', message: 'Transaction Registered Successfully' });
+            return res.json({ status: 'ok', message: 'Transaction Registered Successfully' });
         } catch (err){
-            res.json({ status: 'error', message: err.message });
+            return res.json({ status: 'error', message: err.message });
     }
 }
 
@@ -556,6 +557,4 @@ router.put('/edit-transaction', jsonParser, CheckandgetUser , editTransaction);
 router.delete('/delete-transaction', jsonParser, CheckandgetUser , deleteTransaction);
 
 
-module.exports = 
-    // executeQuery,
-    router
+module.exports = router
