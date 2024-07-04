@@ -310,134 +310,222 @@ async function exportTemplate(req, res, next) {
 }
 
 
+//==checking before import==
+async function validateTransactionData(user_id, transactionData) {
+    const { categorie_id, tag_id, transaction_datetime, amount, note, fav } = transactionData;
+
+    if ( !categorie_id || !amount || !transaction_datetime  || fav === undefined) {
+        throw new Error(`Missing fill out the information completely.`);
+    }
+
+    // Check if category exists
+    const checkCategorieUserQuery = 'SELECT * FROM Categories WHERE categorie_id = ? AND (user_id = ? OR user_id IS NULL)';
+    const categorieExists = await executeQuery(checkCategorieUserQuery, [categorie_id, user_id]);
+    if (categorieExists.length === 0) {
+        throw new Error(`Categorie with ID ${categorie_id} not found for user ${user_id}`);
+    }
+
+    // Check if tags exist
+    if (tag_id && tag_id.length > 0) {
+        const tagIdString = tag_id.join(',');
+        const checkTagsQuery = `SELECT * FROM Tags WHERE tag_id IN (${tagIdString}) AND user_id = ?`;
+        const tagsExists = await executeQuery(checkTagsQuery, [user_id]);
+
+        if (tagsExists.length !== tag_id.length) {
+            throw new Error(`One or more tags do not belong to user ${user_id}`);
+        }
+    }
+}
+
+
+
 //== Import Excel == 
-async function importTransactionsFromExcel(user_id, filePath, req, res, next) {
+async function importTransactionsFromExcel(user_id, filePath, req, res) {
     try {
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(filePath);
 
         const worksheet = workbook.worksheets[0];
+
         const transactions = [];
-        const importTime = moment().format('HH:mm:ss');
+        let errors = [];
+        let validTransactions = [];
 
         let isFirstRow = true;
         worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
             if (isFirstRow) {
-                isFirstRow = false; 
-                return; 
+                isFirstRow = false;
+                return; // Skip header row
             }
 
+            let transaction_datetime = row.getCell(1).value ? moment.utc(row.getCell(1).value).format('YYYY-MM-DD HH:mm:ss') : null;
+            
+            // Ensure transaction_datetime has 'HH:mm:ss' if it's missing
+            if (transaction_datetime && !transaction_datetime.includes(' ')) {
+                transaction_datetime += ' 00:00:00';
+            } else if (transaction_datetime && transaction_datetime.split(' ')[1].length < 8) {
+                transaction_datetime = transaction_datetime.split(' ')[0] + ' 00:00:00';
+            }
+            
+            let tag_id = row.getCell(6).value ? row.getCell(6).value.toString().trim() : '[]';
+            try {
+                tag_id = JSON.parse(tag_id);
+                if (!Array.isArray(tag_id)) {
+                    tag_id = [];
+                } else {
+                    tag_id = tag_id.filter(id => typeof id === 'number');
+                }
+            } catch (error) {
+                tag_id = [];
+            }
+
+
             const transaction = {
-                transaction_datetime: row.getCell(1).value,
+                transaction_datetime: transaction_datetime,
                 categorie_id: row.getCell(2).value,
                 amount: row.getCell(3).value,
                 note: row.getCell(4).value,
                 fav: row.getCell(5).value,
-                tag_id: row.getCell(6).value,
+                tag_id: tag_id,
             };
 
-            // เก็บข้อมูลธุรกรรมลงในอาร์เรย์ transactions
             transactions.push(transaction);
         });
 
         console.log('Transactions:', transactions);
 
-        for (const transaction of transactions) {
+        // Checking All Before Record
+        for (const transactionData of transactions) {
             try {
-                req.body = transaction;
-                await record(req, res, next);
+                await validateTransactionData(user_id, transactionData);
+                validTransactions.push(transactionData);
+            } catch (err) {
+                errors.push({ row: transactionData, error: err.message });
+            }
+        }
+
+
+        // Record some Success?
+        if (errors.length === 0) {
+            console.log('All transactions are valid.');
+        } else {
+            console.log('Validation failed for some transactions:', errors);
+            return res.json({
+                message: 'Validation failed for some transactions.',
+                errors: errors,
+                validTransactions: validTransactions
+            });
+        }
+        
+        await recordValidTransactions(user_id, validTransactions, req, res);
+    } catch (error) {
+        console.error('Error importing transactions:', error);
+        res.status(500).json({ message: 'Error importing transactions.', error: error.message });
+    }
+};
+
+async function recordValidTransactions(user_id, validTransactions, req, res) {
+    const results = [];
+    try {
+        for (const transaction of validTransactions) {
+            console.log('Transaction to be recorded:', transaction);
+            try {
+                req.body = { user_id, ...transaction }; // Set request body
+                const result = await record(req); // Record transaction
+                results.push({ transaction, result });
+
+                console.log(`Transaction recorded successfully: ${JSON.stringify(transaction)}`);
             } catch (error) {
                 console.error('Error recording transaction:', error);
-                throw new Error('Error recording transaction');
+                results.push({ transaction, error: error.message });
             }
         }
 
         console.log('Import transactions completed.');
+        // res.status(200).json({ message: 'Transactions imported successfully.', results });
     } catch (error) {
-        console.error('Error importing transactions:', error);
+        console.error('Error in recordValidTransactions:', error);
         res.status(500).json({ message: 'Error importing transactions.', error: error.message });
-        return; 
     }
-    res.status(200).json({ message: 'Transactions imported successfully.' });
 }
 
 
 
+// == confirm ==
+async function confirm (req, res, next){
+    const user_id = res.locals.user.user_id;
+    const { validTransactions } = req.body;
+
+    try {
+        await recordValidTransactions(validTransactions, req, res, next);
+    } catch (error) {
+        res.status(500).json({ message: 'Error confirming transactions.', error: error.message });
+    }
+}
+
+
 //== API ImportFile ==
 async function importTransactions(req, res, next) {
+    const user_id = res.locals.user.user_id;
+    const filePath = req.file.path;
     try {
         // Check if req.file exists
         if (!req.file || !req.file.path) {
             throw new Error('File upload failed or file path is missing.');
         }
+        if (!user_id) {
+            throw new Error('User is missing.');
+        }
 
-        const user_id = res.locals.user.user_id;
-        const filePath = req.file.path;
 
         await importTransactionsFromExcel(user_id, filePath, req, res, next);
-        res.status(200).json({ message: 'Transactions imported successfully.' });
+        return res.json({ status: 'ok', message: 'Import file & Transaction Registered Successfully' });
     } catch (error) {
         console.error('Error importing transactions:', error);
         res.status(500).json({ message: 'Error importing transactions.', error: error.message });
         return; 
     }
-    res.status(200).json({ message: 'Transactions imported successfully.' });
 }
 
 
-// async function record(req, res, next){
-//     const user_id = res.locals.user.user_id
-//     const { categorie_id, amount, note, transaction_datetime, fav, tag_id} = req.body
+async function record(req) {
+    const { user_id, categorie_id, amount, note, transaction_datetime, fav, tag_id } = req.body;
 
-//     if (!user_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
-//             return res.json({ status: 'error', message: 'Please fill out the information completely.' });
-//         }
+    if (!user_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
+        throw new Error('Please fill out the information completely.');
+    }
 
-//     const noteValue = note !== undefined ? note : null;
-//     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
-//     try {
-//         //Check CategorieUser
-//         const checkCategorieUserQuery = 'SELECT * FROM Categories WHERE categorie_id = ? AND user_id = ? OR user_id IS NULL';
-//         const categorieExists = await executeQuery(checkCategorieUserQuery,[categorie_id, user_id]);
-//         if (categorieExists.length === 0) {
-//             return res.json({ status: 'error', message: 'Categories not found for this user.' });
-//         }
-//         //Check TagAdd?
-//         if (Array.isArray(tag_id) && tag_id.length > 0) {
-//             // Convert tag_id array to a comma-separated string for the query
-//             const tagIdString = tag_id.join(',');
-//             const checkTagsQuery = `SELECT * FROM Tags WHERE tag_id IN (${tagIdString}) AND user_id = ?`;
-//             const tagsExists = await executeQuery(checkTagsQuery, [user_id]);
+    const noteValue = note !== undefined ? note : null;
+    const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
 
-//             if (tagsExists.length !== tag_id.length) {
-//                 return res.json({ status: 'error', message: 'One or more tags do not belong to the current user.' });
-//             }
-//         }
-//         //Add To Transactions
-//         const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)'
-//         const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, fav])
+    try {
+        const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)';
+        const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, fav]);
 
-//         if (!transactionInsertResult || !transactionInsertResult.insertId) {
-//             throw new Error('Failed to insert transaction');
-//         }
+        if (!transactionInsertResult || !transactionInsertResult.insertId) {
+            throw new Error('Failed to insert transaction');
+        }
 
-//         const transactions_id = transactionInsertResult.insertId;
+        const transactions_id = transactionInsertResult.insertId;
 
-//         if (Array.isArray(tag_id) && tag_id.length > 0) {
-//             const values = tag_id.map(tag => [transactions_id, tag]);
-//             const valuesPlaceholder = values.map(() => '(?, ?)').join(', ');
-//             const flattenedValues = values.flat();
+        if (Array.isArray(tag_id) && tag_id.length > 0) {
+            const values = tag_id.map(tag => [transactions_id, tag]);
+            const valuesPlaceholder = values.map(() => '(?, ?)').join(', ');
+            const flattenedValues = values.flat();
 
-//             const insertMapQuery = `INSERT INTO Transactions_Tags_map (transactions_id, tag_id) VALUES ${valuesPlaceholder}`;
-//             await executeQuery(insertMapQuery, flattenedValues);
-//         }
+            const insertMapQuery = `INSERT INTO Transactions_Tags_map (transactions_id, tag_id) VALUES ${valuesPlaceholder}`;
+            await executeQuery(insertMapQuery, flattenedValues);
+        }
 
-//             return res.json({ status: 'ok', message: 'Transaction Registered Successfully' });
-//         } catch (err){
-//             return res.json({ status: 'error', message: err.message });
-//     }
-// }
+        return { status: 'ok', message: 'Transaction Registered Successfully' };
+    } catch (err) {
+        console.error('Error recording transaction:', err);
+        throw err;
+    }
+}
 
+
+router.post('/confirm-transactions', CheckandgetUser, confirm)
 router.post('/import-transactions', upload.single('file'), CheckandgetUser, importTransactions)
 router.get('/getExcelUserTransactions', jsonParser, CheckandgetUser , exTransactionsAll);
 router.get('/getExportTemplate', jsonParser, CheckandgetUser , exportTemplate);

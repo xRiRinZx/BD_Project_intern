@@ -486,7 +486,7 @@ async function summaryYear(req, res, next) {
         const summaryQuery = createSummaryQuery(user_id, '%Y', selected_year);
         const monthlySummaryQuery = `
             SELECT 
-                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') AS month,
+                DATE_FORMAT(Transactions.transaction_datetime, '%m') AS month,
                 SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
                 SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
             FROM
@@ -497,9 +497,9 @@ async function summaryYear(req, res, next) {
                 Transactions.user_id = ? AND
                 DATE_FORMAT(Transactions.transaction_datetime, '%Y') = ?
             GROUP BY
-                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m')
+                DATE_FORMAT(Transactions.transaction_datetime, '%m')
             ORDER BY
-                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m');
+                DATE_FORMAT(Transactions.transaction_datetime, '%m');
         `;
 
         const [summaryResults, monthlyResults] = await Promise.all([
@@ -521,7 +521,7 @@ async function summaryYear(req, res, next) {
     
         monthlyResults.forEach(result => {
             monthlySummary.push({
-                month: result.month,
+                month: parseInt(result.month),
                 total_income: parseFloat(result.total_income) || 0,
                 total_expense: parseFloat(result.total_expense) || 0,
                 balance: (parseFloat(result.total_income) || 0) - (parseFloat(result.total_expense) || 0)
