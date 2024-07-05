@@ -79,6 +79,7 @@ async function record(req, res, next){
 
     const noteValue = note !== undefined ? note : null;
     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
+    const favValue = fav !== undefined && fav !== null ? fav : 0;
     try {
         //Check CategorieUser
         const checkCategorieUserQuery = 'SELECT * FROM Categories WHERE categorie_id = ? AND user_id = ? OR user_id IS NULL';
@@ -99,7 +100,7 @@ async function record(req, res, next){
         }
         //Add To Transactions
         const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)'
-        const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, fav])
+        const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, favValue])
 
         if (!transactionInsertResult || !transactionInsertResult.insertId) {
             throw new Error('Failed to insert transaction');
@@ -133,6 +134,7 @@ async function editTransaction(req, res, next) {
 
     const noteValue = note !== undefined ? note : null;
     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
+    const favValue = fav !== undefined && fav !== null ? fav : 0;
     try {
         // Check if the transaction exists and belongs to the user
         const checkTransactionQuery = 'SELECT * FROM Transactions WHERE transactions_id = ? AND user_id = ?';
@@ -162,7 +164,7 @@ async function editTransaction(req, res, next) {
 
         // Update Transactions
         const updateTransaction = 'UPDATE Transactions SET categorie_id = ?, amount = ?, note = ?, transaction_datetime = ?, fav = ? WHERE transactions_id = ? AND user_id = ?';
-        const transactionUpdateResult = await executeQuery(updateTransaction, [categorie_id, amount, noteValue, transactionDatetimeThai, fav, transactions_id, user_id]);
+        const transactionUpdateResult = await executeQuery(updateTransaction, [categorie_id, amount, noteValue, transactionDatetimeThai, favValue, transactions_id, user_id]);
 
         if (!transactionUpdateResult || transactionUpdateResult.affectedRows === 0) {
             throw new Error('Failed to update transaction');
@@ -360,6 +362,8 @@ async function summaryMonth(req, res, next) {
                 DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m') = ?
             GROUP BY
                 Categories.type, Categories.name, Categories.categorie_id
+            ORDER BY
+                amount DESC;
         `;
 
         const tagSummaryQuery = `
@@ -383,6 +387,8 @@ async function summaryMonth(req, res, next) {
             AND (Categories.type = 'expenses' OR Categories.type = 'income')
         GROUP BY
             Tags.tag_id, Tags.tag_name, Categories.type
+        ORDER BY
+            amount DESC;
     `;
 
 

@@ -17,24 +17,39 @@ dotenv.config();
 moment.tz.setDefault(config.timezone);
 
 const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
+    destination: (req, file, cb) => {
         cb(null, 'uploads/');
     },
-    filename: function (req, file, cb) {
-        cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
+    filename: (req, file, cb) => {
+        const timestamp = Date.now();
+        const originalname = file.originalname;
+
+        // Generate filename based on user_id and timestamp
+        const filename = `upload_${timestamp}_${originalname}`;
+        cb(null, filename);
     }
 });
 
 const upload = multer({
     storage: storage,
-    fileFilter: function (req, file, cb) {
+    fileFilter: (req, file, cb) => {
+        if (!file) {
+            return cb(new Error('No file uploaded'));
+        }
+        
+        if (!file.originalname) {
+            return cb(new Error('File original name is undefined'));
+        }
+
         const ext = path.extname(file.originalname);
         if (ext !== '.xlsx') {
             return cb(new Error('Only .xlsx files are allowed'));
         }
+        
         cb(null, true);
     }
 });
+
 
 // Function to execute SQL query with parameters
 function executeQuery(query, params) {
@@ -339,9 +354,16 @@ async function validateTransactionData(user_id, transactionData) {
 
 
 
-//== Import Excel == 
-async function importTransactionsFromExcel(user_id, filePath, req, res) {
+//== Read Excel for Record == 
+async function importTransactionsFromExcel(req, res, next) {
     try {
+        const user_id = res.locals.user.user_id
+        const filePath = req.body.filepath;
+
+        if (!filePath) {
+            return res.json({ status: 'error', message: 'No FilePart.' });
+        }
+
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(filePath);
 
@@ -379,6 +401,102 @@ async function importTransactionsFromExcel(user_id, filePath, req, res) {
                 tag_id = [];
             }
 
+            const transaction = {
+                transaction_datetime: transaction_datetime,
+                categorie_id: row.getCell(2).value,
+                amount: row.getCell(3).value,
+                note: row.getCell(4).value,
+                fav: row.getCell(5).value,
+                tag_id: tag_id,
+            };
+
+            transactions.push(transaction);
+        });
+
+        console.log('Transactions:', transactions);
+
+        // Validate each transaction
+        for (const transactionData of transactions) {
+            try {
+                await validateTransactionData(user_id, transactionData);
+                validTransactions.push(transactionData);
+            } catch (err) {
+                errors.push({ row: transactionData, error: err.message });
+            }
+        }
+
+        // Handle validation results 
+        if (errors.length === 0) {
+            console.log('All transactions are valid.');
+        } else {
+            console.log('Validation failed for some transactions:', errors);
+            return res.json({
+                message: 'Validation failed for some transactions.',
+                errors: errors,
+                validTransactions: validTransactions
+            });
+        }
+
+        // Record valid transactions
+        await recordValidTransactions(user_id, validTransactions, req, res);
+        // Respond with success message
+        res.status(200).json({
+            message: 'Transactions imported successfully.',
+            validTransactions: validTransactions
+        });
+    } catch (error) {
+        console.error('Error importing transactions:', error);
+        res.status(500).json({ message: 'Error importing transactions.', error: error.message });
+    }
+}
+
+
+//== Read Excel for RecordAll Ignore ErrorTransaction == 
+async function importTransactionsFromExcelAll(req, res, next) {
+    try {
+        const user_id = res.locals.user.user_id
+        const filePath = req.body.filepath;
+
+        if (!filePath) {
+            return res.json({ status: 'error', message: 'No FilePart.' });
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(filePath);
+
+        const worksheet = workbook.worksheets[0];
+
+        const transactions = [];
+        let errors = [];
+        let validTransactions = [];
+
+        let isFirstRow = true;
+        worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+            if (isFirstRow) {
+                isFirstRow = false;
+                return; // Skip header row
+            }
+
+            let transaction_datetime = row.getCell(1).value ? moment.utc(row.getCell(1).value).format('YYYY-MM-DD HH:mm:ss') : null;
+            
+            // Ensure transaction_datetime has 'HH:mm:ss' if it's missing
+            if (transaction_datetime && !transaction_datetime.includes(' ')) {
+                transaction_datetime += ' 00:00:00';
+            } else if (transaction_datetime && transaction_datetime.split(' ')[1].length < 8) {
+                transaction_datetime = transaction_datetime.split(' ')[0] + ' 00:00:00';
+            }
+            
+            let tag_id = row.getCell(6).value ? row.getCell(6).value.toString().trim() : '[]';
+            try {
+                tag_id = JSON.parse(tag_id);
+                if (!Array.isArray(tag_id)) {
+                    tag_id = [];
+                } else {
+                    tag_id = tag_id.filter(id => typeof id === 'number');
+                }
+            } catch (error) {
+                tag_id = [];
+            }
 
             const transaction = {
                 transaction_datetime: transaction_datetime,
@@ -394,7 +512,7 @@ async function importTransactionsFromExcel(user_id, filePath, req, res) {
 
         console.log('Transactions:', transactions);
 
-        // Checking All Before Record
+        // Validate each transaction
         for (const transactionData of transactions) {
             try {
                 await validateTransactionData(user_id, transactionData);
@@ -404,25 +522,19 @@ async function importTransactionsFromExcel(user_id, filePath, req, res) {
             }
         }
 
-
-        // Record some Success?
-        if (errors.length === 0) {
-            console.log('All transactions are valid.');
-        } else {
-            console.log('Validation failed for some transactions:', errors);
-            return res.json({
-                message: 'Validation failed for some transactions.',
-                errors: errors,
-                validTransactions: validTransactions
-            });
-        }
-        
+        // Record valid transactions All
         await recordValidTransactions(user_id, validTransactions, req, res);
+        // Respond with success message
+        res.status(200).json({
+            message: 'Transactions imported successfully.',
+            validTransactions: validTransactions
+        });
     } catch (error) {
         console.error('Error importing transactions:', error);
         res.status(500).json({ message: 'Error importing transactions.', error: error.message });
     }
-};
+}
+
 
 async function recordValidTransactions(user_id, validTransactions, req, res) {
     const results = [];
@@ -449,37 +561,19 @@ async function recordValidTransactions(user_id, validTransactions, req, res) {
     }
 }
 
-
-
-// == confirm ==
-async function confirm (req, res, next){
-    const user_id = res.locals.user.user_id;
-    const { validTransactions } = req.body;
-
-    try {
-        await recordValidTransactions(validTransactions, req, res, next);
-    } catch (error) {
-        res.status(500).json({ message: 'Error confirming transactions.', error: error.message });
-    }
-}
-
-
 //== API ImportFile ==
-async function importTransactions(req, res, next) {
-    const user_id = res.locals.user.user_id;
-    const filePath = req.file.path;
+async function importFile(req, res, next) {
+    const user_id = res.locals.user.user_id
+    const file = req.file;
     try {
-        // Check if req.file exists
-        if (!req.file || !req.file.path) {
-            throw new Error('File upload failed or file path is missing.');
+        if (!file) {
+            return res.status(400).json({status: error , message: 'No file uploaded' });
         }
-        if (!user_id) {
-            throw new Error('User is missing.');
-        }
-
-
-        await importTransactionsFromExcel(user_id, filePath, req, res, next);
-        return res.json({ status: 'ok', message: 'Import file & Transaction Registered Successfully' });
+        return res.status(200).json({ 
+            status: 'ok', 
+            message: 'File uploaded successfully',
+            data : {file: file }
+        });
     } catch (error) {
         console.error('Error importing transactions:', error);
         res.status(500).json({ message: 'Error importing transactions.', error: error.message });
@@ -497,10 +591,11 @@ async function record(req) {
 
     const noteValue = note !== undefined ? note : null;
     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
+    const favValue = fav !== undefined && fav !== null ? fav : 0;
 
     try {
         const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)';
-        const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, fav]);
+        const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, favValue]);
 
         if (!transactionInsertResult || !transactionInsertResult.insertId) {
             throw new Error('Failed to insert transaction');
@@ -525,8 +620,10 @@ async function record(req) {
 }
 
 
-router.post('/confirm-transactions', CheckandgetUser, confirm)
-router.post('/import-transactions', upload.single('file'), CheckandgetUser, importTransactions)
+// router.post('/confirm-transactions', CheckandgetUser, confirm)
+router.post('/import-file', CheckandgetUser, upload.single('file'), importFile)
+router.post('/import-excel', jsonParser, CheckandgetUser , importTransactionsFromExcel);
+router.post('/import-excelAll', jsonParser, CheckandgetUser , importTransactionsFromExcelAll);
 router.get('/getExcelUserTransactions', jsonParser, CheckandgetUser , exTransactionsAll);
 router.get('/getExportTemplate', jsonParser, CheckandgetUser , exportTemplate);
 
