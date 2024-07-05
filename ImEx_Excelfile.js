@@ -179,7 +179,6 @@ async function exTransactionsAll(req, res, next) {
             message: 'Get UserTransactions successfully and Excel file created',
             data: {
                 user_id: user_id,
-                transactions: processedTransactions,
                 fileUrl: `${process.env.API_URL}/exports/${filename}`
             }
         });
@@ -317,7 +316,8 @@ async function exportTemplate(req, res, next) {
         res.json({
             status: 'ok',
             message: 'Excel template file created successfully',
-            fileUrl: `${process.env.API_URL}/exports/${filename}`
+            data:
+            {fileUrl: `${process.env.API_URL}/exports/${filename}`}
         });
     } catch (err) {
         res.json({ status: 'error', message: err.message });
