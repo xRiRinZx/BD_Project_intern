@@ -10,11 +10,14 @@ const multer = require('multer');
 const config = require('./config');
 const dotenv = require('dotenv');
 const moment = require('moment-timezone');
+const app = express();
 
 const CheckandgetUser = require('./Authen_getUser');
 
 dotenv.config();
 moment.tz.setDefault(config.timezone);
+
+app.set('sseClients', new Set());
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -62,6 +65,34 @@ function executeQuery(query, params) {
             }
         });
     });
+}
+
+//== SSE ==
+function status (req, res) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive')
+
+    const sendStatus = (message) => {
+        res.write(`data: ${JSON.stringify(message)}\n\n`);
+    }
+
+    sendStatus({ status: 'connected', message: 'SSE connected' });
+
+    let count = 0;
+    const intervalId = setInterval(()=> {
+        sendStatus({ status: 'processing', progress: count});
+        count += 10;
+        if (count > 100) {
+            clearInterval(intervalId);
+            res.end();
+        }
+    }, 1000);
+
+    req.on('close', () => {
+        clearInterval(intervalId);
+        res.end();
+    })
 }
 
 //== Export AllTransactionsUser ==
@@ -359,11 +390,16 @@ async function importTransactionsFromExcel(req, res, next) {
     try {
         const user_id = res.locals.user.user_id
         const filePath = req.body.filepath;
-
+        
         if (!filePath) {
             return res.json({ status: 'error', message: 'No FilePart.' });
         }
-
+        
+        //start
+        const sseClients = req.app.get('sseClients');
+        if (sseClients && sseClients.forEach) {
+            sseClients.forEach((client) => client({ status: 'start', message: 'Starting process' }));
+        }
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(filePath);
 
@@ -411,6 +447,11 @@ async function importTransactionsFromExcel(req, res, next) {
             };
 
             transactions.push(transaction);
+
+            // In Processing
+            if (sseClients && sseClients.forEach) {
+                sseClients.forEach((client) => client({ status: 'processing', message: 'Processing transactions' }));
+            }
         });
 
         console.log('Transactions:', transactions);
@@ -429,6 +470,9 @@ async function importTransactionsFromExcel(req, res, next) {
         if (errors.length === 0) {
             console.log('All transactions are valid.');
         } else {
+            if (sseClients && sseClients.forEach) {
+                sseClients.forEach((client) => client({ status: 'error', message: 'Confirm record All?' }));
+            }
             console.log('Validation failed for some transactions:', errors);
             return res.json({
                 message: 'Validation failed for some transactions.',
@@ -440,12 +484,21 @@ async function importTransactionsFromExcel(req, res, next) {
         // Record valid transactions
         await recordValidTransactions(user_id, validTransactions, req, res);
         // Respond with success message
+
+        // Success
+        if (sseClients && sseClients.forEach) {
+            sseClients.forEach((client) => client({ status: 'completed', message: 'Import completed successfully' }));
+        }
+
         res.status(200).json({
             message: 'Transactions imported successfully.',
             validTransactions: validTransactions
         });
     } catch (error) {
         console.error('Error importing transactions:', error);
+        if (sseClients && sseClients.forEach) {
+            sseClients.forEach((client) => client({ status: 'error', message: error.message }));
+        }
         res.status(500).json({ message: 'Error importing transactions.', error: error.message });
     }
 }
@@ -459,6 +512,12 @@ async function importTransactionsFromExcelAll(req, res, next) {
 
         if (!filePath) {
             return res.json({ status: 'error', message: 'No FilePart.' });
+        }
+
+        //start
+        const sseClients = req.app.get('sseClients');
+        if (sseClients && sseClients.forEach) {
+            sseClients.forEach((client) => client({ status: 'start', message: 'Starting process' }));
         }
 
         const workbook = new ExcelJS.Workbook();
@@ -508,6 +567,11 @@ async function importTransactionsFromExcelAll(req, res, next) {
             };
 
             transactions.push(transaction);
+
+            // In Processing
+            if (sseClients && sseClients.forEach) {
+                sseClients.forEach((client) => client({ status: 'processing', message: 'Processing transactions' }));
+            }
         });
 
         console.log('Transactions:', transactions);
@@ -524,6 +588,12 @@ async function importTransactionsFromExcelAll(req, res, next) {
 
         // Record valid transactions All
         await recordValidTransactions(user_id, validTransactions, req, res);
+
+        // Success
+        if (sseClients && sseClients.forEach) {
+            sseClients.forEach((client) => client({ status: 'completed', message: 'Import completed successfully' }));
+        }
+
         // Respond with success message
         res.status(200).json({
             message: 'Transactions imported successfully.',
@@ -531,6 +601,9 @@ async function importTransactionsFromExcelAll(req, res, next) {
         });
     } catch (error) {
         console.error('Error importing transactions:', error);
+        if (sseClients && sseClients.forEach) {
+            sseClients.forEach((client) => client({ status: 'error', message: error.message }));
+        }
         res.status(500).json({ message: 'Error importing transactions.', error: error.message });
     }
 }
@@ -620,8 +693,8 @@ async function record(req) {
 }
 
 
-// router.post('/confirm-transactions', CheckandgetUser, confirm)
-router.post('/import-file', CheckandgetUser, upload.single('file'), importFile)
+router.get('/status',jsonParser, status);
+router.post('/import-file', CheckandgetUser, upload.single('file'), importFile);
 router.post('/import-excel', jsonParser, CheckandgetUser , importTransactionsFromExcel);
 router.post('/import-excelAll', jsonParser, CheckandgetUser , importTransactionsFromExcelAll);
 router.get('/getExcelUserTransactions', jsonParser, CheckandgetUser , exTransactionsAll);
