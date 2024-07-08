@@ -242,8 +242,8 @@ async function exportTemplate(req, res, next) {
         const exampleTransaction = {
             transaction_datetime: '2024-07-03 14:30:00',
             categorie_id: 1,
-            amount: '100.50',
-            note: 'Example transaction note REPLACE HERE',
+            amount: 100.50,
+            note: 'Example transaction note REPLACE HERE(28 Character)',
             fav: 1,
             tags: '[tag_id,tag_id]'
         };
@@ -381,6 +381,11 @@ async function validateTransactionData(user_id, transactionData) {
             throw new Error(`One or more tags do not belong to user ${user_id}`);
         }
     }
+
+    // Check note length
+    if (note && note.length > 28) {
+        throw new Error(`Note exceeds maximum length of 28 characters.`);
+    }
 }
 
 
@@ -475,9 +480,10 @@ async function importTransactionsFromExcel(req, res, next) {
             }
             console.log('Validation failed for some transactions:', errors);
             return res.json({
+                status: 'error',
                 message: 'Validation failed for some transactions.',
-                errors: errors,
-                validTransactions: validTransactions
+                data:{errors: errors,
+                validTransactions: validTransactions}
             });
         }
 
@@ -491,15 +497,16 @@ async function importTransactionsFromExcel(req, res, next) {
         }
 
         res.status(200).json({
+            status: 'ok',
             message: 'Transactions imported successfully.',
-            validTransactions: validTransactions
+            data: {validTransactions: validTransactions}
         });
     } catch (error) {
         console.error('Error importing transactions:', error);
         if (sseClients && sseClients.forEach) {
             sseClients.forEach((client) => client({ status: 'error', message: error.message }));
         }
-        res.status(500).json({ message: 'Error importing transactions.', error: error.message });
+        res.status(500).json({ status: 'error', message: 'Error importing transactions.', error: error.message });
     }
 }
 
@@ -596,15 +603,16 @@ async function importTransactionsFromExcelAll(req, res, next) {
 
         // Respond with success message
         res.status(200).json({
+            status: 'ok',
             message: 'Transactions imported successfully.',
-            validTransactions: validTransactions
+            data: {validTransactions: validTransactions}
         });
     } catch (error) {
         console.error('Error importing transactions:', error);
         if (sseClients && sseClients.forEach) {
             sseClients.forEach((client) => client({ status: 'error', message: error.message }));
         }
-        res.status(500).json({ message: 'Error importing transactions.', error: error.message });
+        res.status(500).json({ status: 'error' ,message: 'Error importing transactions.', error: error.message });
     }
 }
 
@@ -630,7 +638,7 @@ async function recordValidTransactions(user_id, validTransactions, req, res) {
         // res.status(200).json({ message: 'Transactions imported successfully.', results });
     } catch (error) {
         console.error('Error in recordValidTransactions:', error);
-        res.status(500).json({ message: 'Error importing transactions.', error: error.message });
+        res.status(500).json({ status: 'error' ,message: 'Error importing transactions.', error: error.message });
     }
 }
 
@@ -640,7 +648,7 @@ async function importFile(req, res, next) {
     const file = req.file;
     try {
         if (!file) {
-            return res.status(400).json({status: error , message: 'No file uploaded' });
+            return res.status(400).json({status: 'error' , message: 'No file uploaded' });
         }
         return res.status(200).json({ 
             status: 'ok', 
@@ -649,7 +657,7 @@ async function importFile(req, res, next) {
         });
     } catch (error) {
         console.error('Error importing transactions:', error);
-        res.status(500).json({ message: 'Error importing transactions.', error: error.message });
+        res.status(500).json({ status: 'error', message: 'Error importing transactions.', error: error.message });
         return; 
     }
 }
