@@ -17,7 +17,7 @@ const CheckandgetUser = require('./Authen_getUser');
 dotenv.config();
 moment.tz.setDefault(config.timezone);
 
-app.set('sseClients', new Set());
+let sseClients = new Set();
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -68,38 +68,33 @@ function executeQuery(query, params) {
 }
 
 //== SSE ==
-function status (req, res) {
+function status(req, res) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
 
-    const sendStatus = (message) => {
+    const client = (message) => {
         res.write(`data: ${JSON.stringify(message)}\n\n`);
-    }
+    };
 
-    sendStatus({ status: 'connected', message: 'SSE connected' });
-
-    let count = 0;
-    const intervalId = setInterval(()=> {
-        sendStatus({ status: 'processing', progress: count});
-        count += 10;
-        if (count > 100) {
-            clearInterval(intervalId);
-            res.end();
-        }
-    }, 1000);
+    sseClients.add(client);
 
     req.on('close', () => {
-        clearInterval(intervalId);
+        sseClients.delete(client);
         res.end();
-    })
+    });
+
+    client({ status: 'connected', message: 'SSE connected' });
 }
 
-//== Export AllTransactionsUser ==
+//== Export selectDateTransactionsUser ==
 async function exTransactionsAll(req, res, next) {
     const user_id = res.locals.user.user_id;
     const firstname = res.locals.user.firstname
     const lastname = res.locals.user.lastname
+    const selected_date_start = req.query.selected_date_start; // YYYY-MM-DD
+    const selected_date_end = req.query.selected_date_end; // YYYY-MM-DD
     if (!user_id || !firstname || !lastname) {
         return res.json({ status: 'error', message: 'User not found.' });
     }
@@ -124,13 +119,13 @@ async function exTransactionsAll(req, res, next) {
         LEFT JOIN
             Tags ON Transactions_Tags_map.tag_id = Tags.tag_id
         WHERE
-            Transactions.user_id = ? 
+            Transactions.user_id = ? AND DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d') BETWEEN ? AND ?
         GROUP BY
             Transactions.transactions_id
         ORDER BY
             DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d %H:%i:%s');
         `;
-        const checkResult = await executeQuery(getTransactionsAllQuery, [user_id]);
+        const checkResult = await executeQuery(getTransactionsAllQuery, [user_id ,selected_date_start, selected_date_end]);
         if (checkResult.length === 0) {
             return res.json({ status: 'error', message: 'No Transactions in this User' });
         }
@@ -149,6 +144,10 @@ async function exTransactionsAll(req, res, next) {
             }) : []
         }));
 
+        const selected_date_range = (selected_date_start === selected_date_end)
+            ? selected_date_start
+            : `${selected_date_start} - ${selected_date_end}`;
+
         // Create Excel file
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('User_Transactions');
@@ -156,18 +155,18 @@ async function exTransactionsAll(req, res, next) {
         // Add user information and create date
         worksheet.getCell('A1').value = `User Name: ${firstname} ${lastname}`;
         worksheet.getCell('A2').value = `Created At: ${moment().format('YYYY-MM-DD HH:mm:ss')}`;
-
+        worksheet.getCell('A3').value = `Date Selected: ${selected_date_range}`;
 
         // Define header cells
-        worksheet.getCell('A4').value = 'Transaction ID';
-        worksheet.getCell('B4').value = 'Categorie ID';
-        worksheet.getCell('C4').value = 'Datetime';
-        worksheet.getCell('D4').value = 'Amount';
-        worksheet.getCell('E4').value = 'Note';
-        worksheet.getCell('F4').value = 'Favorite';
-        worksheet.getCell('G4').value = 'Category Name';
-        worksheet.getCell('H4').value = 'Category Type';
-        worksheet.getCell('I4').value = 'Tags';
+        worksheet.getCell('A5').value = 'Transaction ID';
+        worksheet.getCell('B5').value = 'Categorie ID';
+        worksheet.getCell('C5').value = 'Datetime';
+        worksheet.getCell('D5').value = 'Amount';
+        worksheet.getCell('E5').value = 'Note';
+        worksheet.getCell('F5').value = 'Favorite';
+        worksheet.getCell('G5').value = 'Category Name';
+        worksheet.getCell('H5').value = 'Category Type';
+        worksheet.getCell('I5').value = 'Tags';
 
         worksheet.columns = [
             { key: 'transactions_id', width: 15 },
@@ -182,7 +181,7 @@ async function exTransactionsAll(req, res, next) {
         ];
 
         // Style the header
-        worksheet.getRow(4).eachCell((cell) => {
+        worksheet.getRow(5).eachCell((cell) => {
             cell.fill = {
                 type: 'pattern',
                 pattern: 'solid',
@@ -210,6 +209,7 @@ async function exTransactionsAll(req, res, next) {
             message: 'Get UserTransactions successfully and Excel file created',
             data: {
                 user_id: user_id,
+                selected_date: selected_date_range,
                 fileUrl: `${process.env.API_URL}/exports/${filename}`
             }
         });
@@ -400,15 +400,24 @@ async function importTransactionsFromExcel(req, res, next) {
             return res.json({ status: 'error', message: 'No FilePart.' });
         }
         
-        //start
-        const sseClients = req.app.get('sseClients');
-        if (sseClients && sseClients.forEach) {
+        // Start
+        if (sseClients.size > 0) {
             sseClients.forEach((client) => client({ status: 'start', message: 'Starting process' }));
         }
+
+        
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(filePath);
-
+        
         const worksheet = workbook.worksheets[0];
+
+        // Count total rows excluding the header row
+        let totalRows = 0;
+        worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+            if (rowNumber > 1) { // Skip the header row
+                totalRows++;
+            }
+        });
 
         const transactions = [];
         let errors = [];
@@ -454,8 +463,9 @@ async function importTransactionsFromExcel(req, res, next) {
             transactions.push(transaction);
 
             // In Processing
-            if (sseClients && sseClients.forEach) {
-                sseClients.forEach((client) => client({ status: 'processing', message: 'Processing transactions' }));
+            if (sseClients.size > 0) {
+                const progress = ((rowNumber - 1) / (totalRows)) * 100;
+                sseClients.forEach(client => client({ status: 'processing', message: 'Processing Reading File...', progress: parseFloat(progress.toFixed(0)) }));
             }
         });
 
@@ -475,7 +485,7 @@ async function importTransactionsFromExcel(req, res, next) {
         if (errors.length === 0) {
             console.log('All transactions are valid.');
         } else {
-            if (sseClients && sseClients.forEach) {
+            if (sseClients.size > 0) {
                 sseClients.forEach((client) => client({ status: 'error', message: 'Confirm record All?' }));
             }
             console.log('Validation failed for some transactions:', errors);
@@ -492,7 +502,7 @@ async function importTransactionsFromExcel(req, res, next) {
         // Respond with success message
 
         // Success
-        if (sseClients && sseClients.forEach) {
+        if (sseClients.size > 0) {
             sseClients.forEach((client) => client({ status: 'completed', message: 'Import completed successfully' }));
         }
 
@@ -503,7 +513,7 @@ async function importTransactionsFromExcel(req, res, next) {
         });
     } catch (error) {
         console.error('Error importing transactions:', error);
-        if (sseClients && sseClients.forEach) {
+        if (sseClients.size > 0) {
             sseClients.forEach((client) => client({ status: 'error', message: error.message }));
         }
         res.status(500).json({ status: 'error', message: 'Error importing transactions.', error: error.message });
@@ -522,8 +532,7 @@ async function importTransactionsFromExcelAll(req, res, next) {
         }
 
         //start
-        const sseClients = req.app.get('sseClients');
-        if (sseClients && sseClients.forEach) {
+        if (sseClients.size > 0) {
             sseClients.forEach((client) => client({ status: 'start', message: 'Starting process' }));
         }
 
@@ -531,6 +540,14 @@ async function importTransactionsFromExcelAll(req, res, next) {
         await workbook.xlsx.readFile(filePath);
 
         const worksheet = workbook.worksheets[0];
+
+        // Count total rows excluding the header row
+        let totalRows = 0;
+        worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+            if (rowNumber > 1) { // Skip the header row
+                totalRows++;
+            }
+        });
 
         const transactions = [];
         let errors = [];
@@ -576,8 +593,9 @@ async function importTransactionsFromExcelAll(req, res, next) {
             transactions.push(transaction);
 
             // In Processing
-            if (sseClients && sseClients.forEach) {
-                sseClients.forEach((client) => client({ status: 'processing', message: 'Processing transactions' }));
+            if (sseClients.size > 0) {
+                const progress = ((rowNumber - 1) / (totalRows)) * 100;
+                sseClients.forEach(client => client({ status: 'processing', message: 'Processing Reading File...', progress: parseFloat(progress.toFixed(0)) }));
             }
         });
 
@@ -597,7 +615,7 @@ async function importTransactionsFromExcelAll(req, res, next) {
         await recordValidTransactions(user_id, validTransactions, req, res);
 
         // Success
-        if (sseClients && sseClients.forEach) {
+        if (sseClients.size > 0) {
             sseClients.forEach((client) => client({ status: 'completed', message: 'Import completed successfully' }));
         }
 
@@ -609,7 +627,7 @@ async function importTransactionsFromExcelAll(req, res, next) {
         });
     } catch (error) {
         console.error('Error importing transactions:', error);
-        if (sseClients && sseClients.forEach) {
+        if (sseClients.size > 0) {
             sseClients.forEach((client) => client({ status: 'error', message: error.message }));
         }
         res.status(500).json({ status: 'error' ,message: 'Error importing transactions.', error: error.message });
@@ -620,12 +638,23 @@ async function importTransactionsFromExcelAll(req, res, next) {
 async function recordValidTransactions(user_id, validTransactions, req, res) {
     const results = [];
     try {
+        const totalTransactions = validTransactions.length;
+        let completedCount = 0;
+
         for (const transaction of validTransactions) {
             console.log('Transaction to be recorded:', transaction);
             try {
                 req.body = { user_id, ...transaction }; // Set request body
                 const result = await record(req); // Record transaction
                 results.push({ transaction, result });
+
+                completedCount++;
+                const progress = (completedCount / totalTransactions) * 100;
+
+                // Send progress to SSE clients
+                if (sseClients.size > 0) {
+                    sseClients.forEach(client => client({ status: 'processing', message: 'Recording transactions', progress: parseFloat(progress.toFixed(0)) }));
+                }
 
                 console.log(`Transaction recorded successfully: ${JSON.stringify(transaction)}`);
             } catch (error) {
@@ -641,6 +670,7 @@ async function recordValidTransactions(user_id, validTransactions, req, res) {
         res.status(500).json({ status: 'error' ,message: 'Error importing transactions.', error: error.message });
     }
 }
+
 
 //== API ImportFile ==
 async function importFile(req, res, next) {
