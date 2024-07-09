@@ -199,8 +199,8 @@ async function exTransactionsAll(req, res, next) {
             });
         });
         
-
-        const filename = `user(${user_id})_transactions.xlsx`; //filename use User_id for protect same namefile
+        const timestamp = Date.now();
+        const filename = `user(${user_id})_transactions_${timestamp}.xlsx`; //filename use User_id for protect same namefile
         const filePath = path.join(__dirname, 'exports', filename);
         await workbook.xlsx.writeFile(filePath);
 
@@ -340,7 +340,8 @@ async function exportTemplate(req, res, next) {
             tagsSheet.addRow(tag);
         });
 
-        const filename = `user_${user_id}_template.xlsx`;
+        const timestamp = Date.now();
+        const filename = `user_${user_id}_template_${timestamp}.xlsx`;
         const filePath = path.join(__dirname, 'exports', filename);
         await workbook.xlsx.writeFile(filePath);
 

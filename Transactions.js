@@ -508,10 +508,14 @@ async function summaryYear(req, res, next) {
                 DATE_FORMAT(Transactions.transaction_datetime, '%m');
         `;
 
+
         const [summaryResults, monthlyResults] = await Promise.all([
             executeQuery(summaryQuery, [user_id, selected_year]),
             executeQuery(monthlySummaryQuery, [user_id, selected_year])
         ])
+
+        console.log('Summary Results:', summaryResults);
+        console.log('Monthly Results:', monthlyResults);
 
     //After Query All-----------------------
         if (summaryResults.length === 0) {
