@@ -19,22 +19,22 @@ moment.tz.setDefault(config.timezone);
 
 let sseClients = new Set();
 
-const storage = multer.diskStorage({
+const ExcelStorage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/');
+        cb(null, 'Uploads/Excel');
     },
     filename: (req, file, cb) => {
         const timestamp = Date.now();
         const originalname = file.originalname;
 
         // Generate filename based on user_id and timestamp
-        const filename = `upload_${timestamp}_${originalname}`;
+        const filename = `uploadExcel_${timestamp}_${originalname}`;
         cb(null, filename);
     }
 });
 
-const upload = multer({
-    storage: storage,
+const ExcelUpload = multer({
+    storage: ExcelStorage,
     fileFilter: (req, file, cb) => {
         if (!file) {
             return cb(new Error('No file uploaded'));
@@ -733,7 +733,7 @@ async function record(req) {
 
 
 router.get('/status',jsonParser, status);
-router.post('/import-file', CheckandgetUser, upload.single('file'), importFile);
+router.post('/import-file', CheckandgetUser, ExcelUpload.single('file'), importFile);
 router.post('/import-excel', jsonParser, CheckandgetUser , importTransactionsFromExcel);
 router.post('/import-excelAll', jsonParser, CheckandgetUser , importTransactionsFromExcelAll);
 router.get('/getExcelUserTransactions', jsonParser, CheckandgetUser , exTransactionsAll);

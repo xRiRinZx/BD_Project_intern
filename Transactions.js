@@ -55,19 +55,6 @@ function processSummaryResults(summaryResults) {
     return { total_income, total_expense };
 }
 
-// Function to process transactions results
-function processTransactionsResults(transactions) {
-    return transactions.map(transaction => ({
-        transactions_id: transaction.transactions_id,
-        amount: parseFloat(transaction.amount).toFixed(2) || 0,
-        note: transaction.note,
-        transaction_datetime: moment(transaction.transaction_datetime).format('YYYY-MM-DD HH:mm:ss'),
-        categorie_name: transaction.categorie_name,
-        categorie_type: transaction.categorie_type
-    }));
-}
-
-
 // == Record Transactions ==
 async function record(req, res, next){
     const user_id = res.locals.user.user_id
@@ -241,9 +228,11 @@ async function summaryDay(req, res, next) {
     const user_id = res.locals.user.user_id;
     const selected_date_start = req.query.selected_date_start; // YYYY-MM-DD
     const selected_date_end = req.query.selected_date_end; // YYYY-MM-DD
+    const page = parseInt(req.query.page) || 1; // default page 1
+    const pageSize = parseInt(req.query.pageSize) || 10; // default page size 10
 
-    if (!user_id || !selected_date_start || !selected_date_end) {
-        return res.json({ status: 'error', message: 'Please provide user_id and selected_date_start and selected_date_end.' });
+    if (!user_id || !selected_date_start || !selected_date_end ) {
+        return res.json({ status: 'error', message: 'Please provide valid user_id, selected_date_start, selected_date_end, page, and pageSize.' });
     }
 
     try {
@@ -261,7 +250,7 @@ async function summaryDay(req, res, next) {
         GROUP BY
             Transactions.categorie_id`;
 
-        const transactionsQuery =
+            const transactionsQuery =
             `SELECT 
                 Transactions.transactions_id,
                 Transactions.categorie_id,
@@ -285,12 +274,26 @@ async function summaryDay(req, res, next) {
             GROUP BY
                 Transactions.transactions_id
             ORDER BY
-                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d %H:%i:%s')`;;
+                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d %H:%i:%s') LIMIT ? OFFSET ? 
+            `;
+        const countQuery =
+            `SELECT 
+                COUNT(*) AS total_transactions
+            FROM
+                Transactions
+            WHERE
+                Transactions.user_id = ? AND DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d') BETWEEN ? AND ?`;
+        
 
-            const [summaryResults, transactions] = await Promise.all([
-                executeQuery(summaryQuery, [user_id, selected_date_start, selected_date_end]),
-                executeQuery(transactionsQuery, [user_id, selected_date_start, selected_date_end])
-            ])
+        const offset = (page - 1) * pageSize;
+
+
+        const [summaryResults, transactions, countResult] = await Promise.all([
+            executeQuery(summaryQuery, [user_id, selected_date_start, selected_date_end]),
+            executeQuery(transactionsQuery, [user_id, selected_date_start, selected_date_end ,`${pageSize}` , `${offset}`]),
+            executeQuery(countQuery, [user_id, selected_date_start, selected_date_end])
+        ]);
+
 
         if (transactions.length === 0) {
             return res.json({ status: 'error', message: 'No transactions found for the selected date.' });
@@ -316,24 +319,34 @@ async function summaryDay(req, res, next) {
             ? selected_date_start
             : `${selected_date_start} - ${selected_date_end}`;
 
-        res.json({
-            status: 'ok',
-            message: 'Get SummaryDay Transactions Successfully',
-            data: {
-                summary: {
-                    user_id: user_id,
-                    selected_date: selected_date_range,
-                    total_income: parseFloat(total_income.toFixed(2)),
-                    total_expense: parseFloat(total_expense.toFixed(2))
-            },
-            transactions: processedTransactions
-        }
-        });
+        const totalTransactions = countResult[0].total_transactions;
+        const totalPages = Math.ceil(totalTransactions / pageSize);
+            
+            res.json({
+                status: 'ok',
+                message: 'Get SummaryDay Transactions Successfully',
+                data: {
+                    summary: {
+                        user_id: user_id,
+                        selected_date: selected_date_range,
+                        total_income: parseFloat(total_income.toFixed(2)),
+                        total_expense: parseFloat(total_expense.toFixed(2))
+                    },
+                    transactions: processedTransactions,
+                    pagination: {
+                        page: page,
+                        page_size: pageSize,
+                        page_total: totalPages,
+                        total_transactions: totalTransactions // จำนวน transaction ทั้งหมดที่มี
+                    }
+                }
+            });
 
     } catch (err) {
         res.json({ status: 'error', message: err.message });
     }
 }
+
 
             
 // ==summary Selected Month==
@@ -491,31 +504,34 @@ async function summaryYear(req, res, next) {
     try {
         const summaryQuery = createSummaryQuery(user_id, '%Y', selected_year);
         const monthlySummaryQuery = `
+            WITH months AS (
+                SELECT 1 AS month UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL
+                SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL
+                SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL
+                SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12
+            )
             SELECT 
-                DATE_FORMAT(Transactions.transaction_datetime, '%m') AS month,
-                SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
-                SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
+                months.month,
+                COALESCE(SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END), 0) AS total_income,
+                COALESCE(SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END), 0) AS total_expense
             FROM
-                Transactions
-            JOIN
+                months
+            LEFT JOIN
+                Transactions ON MONTH(Transactions.transaction_datetime) = months.month
+                AND YEAR(Transactions.transaction_datetime) = ?
+                AND Transactions.user_id = ?
+            LEFT JOIN
                 Categories ON Transactions.categorie_id = Categories.categorie_id
-            WHERE
-                Transactions.user_id = ? AND
-                DATE_FORMAT(Transactions.transaction_datetime, '%Y') = ?
             GROUP BY
-                DATE_FORMAT(Transactions.transaction_datetime, '%m')
+                months.month
             ORDER BY
-                DATE_FORMAT(Transactions.transaction_datetime, '%m');
+                months.month;
         `;
-
-
+    
         const [summaryResults, monthlyResults] = await Promise.all([
             executeQuery(summaryQuery, [user_id, selected_year]),
-            executeQuery(monthlySummaryQuery, [user_id, selected_year])
+            executeQuery(monthlySummaryQuery, [selected_year, user_id])
         ])
-
-        console.log('Summary Results:', summaryResults);
-        console.log('Monthly Results:', monthlyResults);
 
     //After Query All-----------------------
         if (summaryResults.length === 0) {
@@ -527,15 +543,16 @@ async function summaryYear(req, res, next) {
         const { total_income, total_expense } = processSummaryResults(summaryResults);
         
         // Calculate the total income and expenses Each Monthly
-        let monthlySummary = [];
+        const months = Array.from({ length: 12 }, (_, i) => i + 1);
     
-        monthlyResults.forEach(result => {
-            monthlySummary.push({
-                month: parseInt(result.month),
-                total_income: parseFloat(result.total_income) || 0,
-                total_expense: parseFloat(result.total_expense) || 0,
-                balance: (parseFloat(result.total_income) || 0) - (parseFloat(result.total_expense) || 0)
-            });
+        const monthlySummary = months.map(month => {
+            const result = monthlyResults.find(r => r.month === month);
+            return {
+                month,
+                total_income: result ? parseFloat(result.total_income) : 0,
+                total_expense: result ? parseFloat(result.total_expense) : 0,
+                balance: (result ? parseFloat(result.total_income) : 0) - (result ? parseFloat(result.total_expense) : 0)
+            };
         });
     
         res.json({

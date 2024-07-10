@@ -19,7 +19,6 @@ const User = require('./User');
 const Categories = require('./Categories');
 const Tags = require('./Tags');
 const ImEx_Excelfile = require('./ImEx_Excelfile');
-const AuthenAndgetUser = require('./Authen_getUser');
 
 app.use(cors());
 dotenv.config();

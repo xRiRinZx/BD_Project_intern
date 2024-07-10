@@ -6,6 +6,8 @@ const database = require('./database');
 const nodemailer = require('nodemailer')
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
+const multer = require('multer');
+const path = require('path');
 const saltRounds = 10;
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
@@ -18,6 +20,36 @@ const moment = require('moment-timezone');
 dotenv.config();
 moment.tz.setDefault(config.timezone);
 
+// Multer settings for profile image upload
+const profileStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'Uploads/Profile');
+    },
+    filename: (req, file, cb) => {
+        const random = crypto.randomBytes(3).toString('hex');
+        const timestamp = Date.now();
+        const originalname = file.originalname;
+
+        // Generate filename based on user_id and timestamp
+        const filename = `uploadProfile_${timestamp}_${random}_${originalname}`;
+        cb(null, filename);
+    }
+});
+const ProfileUpload = multer({ storage: profileStorage });
+
+
+// Function to execute SQL query with parameters
+function executeQuery(query, params) {
+    return new Promise((resolve, reject) => {
+        database.executeQuery(query, params, (err, result) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(result);
+            }
+        });
+    });
+}
 
 // == Register ==
 function registerUser (req , res , next){
@@ -47,7 +79,7 @@ function registerUser (req , res , next){
             // Hashing successful, Store in Database
             console.log('Hashed password:', hash);
             database.executeQuery(
-                'INSERT INTO User (email , password , firstname , lastname , verification_token , is_verified) VALUES (?, ?, ?, ?, NULL , 0)',
+                'INSERT INTO User (email , password , firstname , lastname , verification_token , is_verified , profile_path) VALUES (?, ?, ?, ?, NULL , 0 , "Uploads/Profile/user-profile-default.png")',
                     [req.body.email , hash , req.body.firstname , req.body.lastname ],
                     function (err, result) {
                         if (err) {
@@ -452,8 +484,28 @@ async function changePassword(req, res, next){
         console.error('Error changing password:', err);
         res.json({ status: 'error', message: err.message})
      }
+}
 
+//== Edit Profile-Picture ==
+async function editProfilePic (req, res, next) {
+    const user_id = res.locals.user.user_id;
+    if (!user_id) {
+        return res.json({ status: 'error', message: 'User ID is required' });
+    }
+    if (!req.file) {
+        return res.json({ status: 'error', message: 'No file uploaded' });
+    }
 
+    const profilePath = `Uploads/Profile/${req.file.filename}`;
+
+    const updateProfilePathQuery = `UPDATE User SET profile_path = ? WHERE user_id = ?`;
+    
+    try {
+        await executeQuery(updateProfilePathQuery, [profilePath, user_id]);
+        res.json({ status: 'ok', message: 'Profile image uploaded successfully', data:{profile_path: profilePath }});
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
+    }
 }
 
 router.post('/login', jsonParser, loginUser);
@@ -461,6 +513,7 @@ router.post('/register', jsonParser, registerUser);
 router.get('/verify-email', VerifyEmail);
 router.get('/user', jsonParser, AuthenAndgetUser , Extend);
 router.put('/edit', jsonParser, AuthenAndgetUser , editProfile);
+router.put('/edit-profile-pic', jsonParser, AuthenAndgetUser , ProfileUpload.single('file'), editProfilePic);
 router.post('/req-password-reset', jsonParser, requestPasswordReset);
 router.post('/setnewpassword', jsonParser, resetPassword);
 router.post('/verify-token-password', jsonParser, verifyResetPassword);
