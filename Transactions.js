@@ -6,6 +6,7 @@ const database = require('./database');
 const config = require('./config');
 const dotenv = require('dotenv');
 const moment = require('moment-timezone');
+const { executeQuery } = require('./database');
 
 const CheckandgetUser = require('./Authen_getUser');
 
@@ -29,18 +30,6 @@ function createSummaryQuery(user_id, format, date) {
     `;
 }
 
-// Function to execute SQL query with parameters
-function executeQuery(query, params) {
-    return new Promise((resolve, reject) => {
-        database.executeQuery(query, params, (err, result) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(result);
-            }
-        });
-    });
-}
 
 // Function to process summary results
 function processSummaryResults(summaryResults) {
@@ -190,15 +179,7 @@ async function deleteTransaction(req, res, next){
     try {
         // Check if the transaction exists for the given user
         const checkTransactionQuery = 'SELECT * FROM Transactions WHERE transactions_id = ? AND user_id = ?';
-        const transactionExists = await new Promise((resolve, reject) => {
-            database.executeQuery(checkTransactionQuery, [selected_transaction, user_id], (err, results) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(results.length > 0);
-                }
-            });
-        });
+        const transactionExists = await executeQuery(checkTransactionQuery, [selected_transaction, user_id]);
 
         if (!transactionExists) {
             return res.json({ status: 'error', message: 'Transaction not found for this user.' });
@@ -206,15 +187,7 @@ async function deleteTransaction(req, res, next){
 
         // Delete the transaction
         const deleteTransactionQuery = 'DELETE FROM Transactions WHERE transactions_id = ? AND user_id = ?';
-        await new Promise((resolve, reject) => {
-            database.executeQuery(deleteTransactionQuery, [selected_transaction, user_id], (err, results) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(results);
-                }
-            });
-        });
+        await executeQuery(deleteTransactionQuery, [selected_transaction, user_id]);
 
         res.json({ status: 'ok', message: 'Transaction deleted Successfully' });
     } catch (err) {
@@ -237,20 +210,20 @@ async function summaryDay(req, res, next) {
 
     try {
         const summaryQuery = 
-        `SELECT 
-            Transactions.categorie_id, 
-            SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
-            SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
-        FROM
-            Transactions
-        JOIN
-            Categories ON Transactions.categorie_id = Categories.categorie_id
-        WHERE
-            Transactions.user_id = ? AND DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d') BETWEEN ? AND ?
-        GROUP BY
-            Transactions.categorie_id`;
+            `SELECT 
+                Transactions.categorie_id, 
+                SUM(CASE WHEN Categories.type = 'income' THEN Transactions.amount ELSE 0 END) AS total_income,
+                SUM(CASE WHEN Categories.type = 'expenses' THEN Transactions.amount ELSE 0 END) AS total_expense
+            FROM
+                Transactions
+            JOIN
+                Categories ON Transactions.categorie_id = Categories.categorie_id
+            WHERE
+                Transactions.user_id = ? AND DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d') BETWEEN ? AND ?
+            GROUP BY
+                Transactions.categorie_id`;
 
-            const transactionsQuery =
+        const transactionsQuery =
             `SELECT 
                 Transactions.transactions_id,
                 Transactions.categorie_id,
@@ -274,7 +247,7 @@ async function summaryDay(req, res, next) {
             GROUP BY
                 Transactions.transactions_id
             ORDER BY
-                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d %H:%i:%s') LIMIT ? OFFSET ? 
+                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d %H:%i:%s') DESC LIMIT ? OFFSET ? 
             `;
         const countQuery =
             `SELECT 
@@ -287,13 +260,11 @@ async function summaryDay(req, res, next) {
 
         const offset = (page - 1) * pageSize;
 
-
         const [summaryResults, transactions, countResult] = await Promise.all([
             executeQuery(summaryQuery, [user_id, selected_date_start, selected_date_end]),
             executeQuery(transactionsQuery, [user_id, selected_date_start, selected_date_end ,`${pageSize}` , `${offset}`]),
             executeQuery(countQuery, [user_id, selected_date_start, selected_date_end])
         ]);
-
 
         if (transactions.length === 0) {
             return res.json({ status: 'error', message: 'No transactions found for the selected date.' });
@@ -348,7 +319,6 @@ async function summaryDay(req, res, next) {
 }
 
 
-            
 // ==summary Selected Month==
 async function summaryMonth(req, res, next) {
     const user_id = res.locals.user.user_id;

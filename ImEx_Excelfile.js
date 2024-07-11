@@ -13,6 +13,7 @@ const moment = require('moment-timezone');
 const app = express();
 
 const CheckandgetUser = require('./Authen_getUser');
+const { executeQuery } = require('./database');
 
 dotenv.config();
 moment.tz.setDefault(config.timezone);
@@ -52,20 +53,6 @@ const ExcelUpload = multer({
         cb(null, true);
     }
 });
-
-
-// Function to execute SQL query with parameters
-function executeQuery(query, params) {
-    return new Promise((resolve, reject) => {
-        database.executeQuery(query, params, (err, result) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(result);
-            }
-        });
-    });
-}
 
 //== SSE ==
 function status(req, res) {

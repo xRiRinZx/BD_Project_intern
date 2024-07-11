@@ -32,6 +32,7 @@ app.use('/', Categories)
 app.use('/', Tags)
 app.use('/', ImEx_Excelfile)
 app.use('/exports', express.static(path.join(__dirname, 'exports')));
+app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
 
 
 app.listen(3000, function () {

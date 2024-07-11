@@ -6,6 +6,7 @@ const database = require('./database');
 const config = require('./config');
 const dotenv = require('dotenv');
 const moment = require('moment-timezone');
+const { executeQuery } = require('./database');
 
 const AuthenAndgetUser = require('./Authen_getUser');
 moment.tz.setDefault(config.timezone);
@@ -24,14 +25,8 @@ async function addFavorite(req, res, next){
     try {
         // check transaction & favorite
         const checkQuery = `
-            SELECT fav FROM Transactions WHERE transactions_id = ? AND user_id = ?
-        `;
-        const checkResult = await new Promise((resolve, reject) => {
-            database.executeQuery(checkQuery, [transactions_id, user_id], (err, results) => {
-                if (err) reject(err);
-                else resolve(results);
-            });
-        });
+            SELECT fav FROM Transactions WHERE transactions_id = ? AND user_id = ?`;
+        const checkResult = await executeQuery(checkQuery, [transactions_id, user_id]);
         // No transaction
         if (checkResult.length === 0) {
             return res.json({ status: 'error', message: 'No transaction found' });
@@ -45,12 +40,7 @@ async function addFavorite(req, res, next){
         const updateQuery = `
             UPDATE Transactions SET fav = 1 WHERE transactions_id = ? AND user_id = ?
         `;
-        await new Promise((resolve, reject) => {
-            database.executeQuery(updateQuery, [transactions_id, user_id], (err, results) => {
-                if (err) reject(err);
-                else resolve(results);
-            });
-        });
+        await executeQuery(updateQuery, [transactions_id, user_id]);
 
         res.json({ status: 'ok', message: 'Add Favorite successfully' });
     } catch (err) {
@@ -90,13 +80,7 @@ async function getFavorite(req, res, next) {
                 Transactions.transactions_id
         `;
 
-        const checkResult = await new Promise((resolve, reject) => {
-            database.executeQuery(getFavoriteQuery, [user_id, fav], (err, results) => {
-                if (err) reject(err);
-                else resolve(results);
-            });
-        });
-
+        const checkResult = await executeQuery(getFavoriteQuery, [user_id, fav])
         // No Fav transaction
         if (checkResult.length === 0) {
             return res.json({ status: 'error', message: 'No Favorite transaction found' });
@@ -128,8 +112,6 @@ async function getFavorite(req, res, next) {
         res.json({ status: 'error', message: err.message });
     }
 }
-
-
 
 router.put('/addFavorite', jsonParser ,AuthenAndgetUser ,addFavorite);
 router.get('/getFavorite', jsonParser ,AuthenAndgetUser ,getFavorite);

@@ -6,24 +6,12 @@ const database = require('./database');
 const config = require('./config');
 const dotenv = require('dotenv');
 const moment = require('moment-timezone');
+const { executeQuery } = require('./database');
 
 const CheckandgetUser = require('./Authen_getUser');
 
 dotenv.config();
 moment.tz.setDefault(config.timezone);
-
-// Function to execute query
-function executeQuery(query, params) {
-    return new Promise((resolve, reject) => {
-        database.executeQuery(query, params, (err, results) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(results);
-            }
-        });
-    });
-}
 
 //== Create UserCategories ==
 async function createCategories(req, res, next){
