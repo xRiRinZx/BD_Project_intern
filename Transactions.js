@@ -47,13 +47,13 @@ function processSummaryResults(summaryResults) {
 // == Record Transactions ==
 async function record(req, res, next){
     const user_id = res.locals.user.user_id
-    const { categorie_id, amount, note, transaction_datetime, fav, tag_id} = req.body
+    const { categorie_id, amount, note, detail, transaction_datetime, fav, tag_id} = req.body
 
-    if (!user_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
+    if (!user_id || !categorie_id || !amount || !note || !transaction_datetime || fav === undefined) {
             return res.json({ status: 'error', message: 'Please fill out the information completely.' });
         }
 
-    const noteValue = note !== undefined ? note : null;
+    const detailValue = detail !==undefined ? detail : null;
     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
     const favValue = fav !== undefined && fav !== null ? fav : 0;
     try {
@@ -75,8 +75,8 @@ async function record(req, res, next){
             }
         }
         //Add To Transactions
-        const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)'
-        const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, favValue])
+        const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, detail, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, note, detailValue, transactionDatetimeThai, favValue])
 
         if (!transactionInsertResult || !transactionInsertResult.insertId) {
             throw new Error('Failed to insert transaction');
@@ -102,13 +102,13 @@ async function record(req, res, next){
 // == edit transaction ==
 async function editTransaction(req, res, next) {
     const user_id = res.locals.user.user_id;
-    const { transactions_id, categorie_id, amount, note, transaction_datetime, fav, tag_id } = req.body;
+    const { transactions_id, categorie_id, amount, note, detail, transaction_datetime, fav, tag_id } = req.body;
 
-    if (!user_id || !transactions_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
+    if (!user_id || !transactions_id || !categorie_id || !amount || !note || !transaction_datetime || fav === undefined) {
         return res.json({ status: 'error', message: 'Please fill out the information completely.' });
     }
 
-    const noteValue = note !== undefined ? note : null;
+    const detailValue = detail !== undefined ? detail : null;
     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
     const favValue = fav !== undefined && fav !== null ? fav : 0;
     try {
@@ -139,8 +139,8 @@ async function editTransaction(req, res, next) {
         }
 
         // Update Transactions
-        const updateTransaction = 'UPDATE Transactions SET categorie_id = ?, amount = ?, note = ?, transaction_datetime = ?, fav = ? WHERE transactions_id = ? AND user_id = ?';
-        const transactionUpdateResult = await executeQuery(updateTransaction, [categorie_id, amount, noteValue, transactionDatetimeThai, favValue, transactions_id, user_id]);
+        const updateTransaction = 'UPDATE Transactions SET categorie_id = ?, amount = ?, note = ?, detail = ?, transaction_datetime = ?, fav = ? WHERE transactions_id = ? AND user_id = ?';
+        const transactionUpdateResult = await executeQuery(updateTransaction, [categorie_id, amount, note, detailValue, transactionDatetimeThai, favValue, transactions_id, user_id]);
 
         if (!transactionUpdateResult || transactionUpdateResult.affectedRows === 0) {
             throw new Error('Failed to update transaction');
@@ -229,6 +229,7 @@ async function summaryDay(req, res, next) {
                 Transactions.categorie_id,
                 Transactions.amount,
                 Transactions.note,
+                Transactions.detail,
                 Transactions.transaction_datetime,
                 Transactions.fav,
                 Categories.name AS categorie_name,
@@ -276,6 +277,7 @@ async function summaryDay(req, res, next) {
             categorie_id: transaction.categorie_id,
             amount: parseFloat(transaction.amount),
             note: transaction.note,
+            detail: transaction.detail,
             transaction_datetime: moment(transaction.transaction_datetime).format('YYYY-MM-DD HH:mm:ss'),
             fav: transaction.fav,
             categorie_name: transaction.categorie_name,

@@ -92,6 +92,7 @@ async function exTransactionsAll(req, res, next) {
             Transactions.categorie_id,
             Transactions.amount,
             Transactions.note,
+            Transactions.detail,
             Transactions.transaction_datetime,
             Transactions.fav,
             Categories.name As categorie_name,
@@ -121,6 +122,7 @@ async function exTransactionsAll(req, res, next) {
             categorie_id: transaction.categorie_id,
             amount: parseFloat(transaction.amount),
             note: transaction.note,
+            detail: transaction.detail,
             transaction_datetime: moment(transaction.transaction_datetime).format('YYYY-MM-DD HH:mm:ss'),
             fav: transaction.fav,
             categorie_name: transaction.categorie_name,
@@ -150,10 +152,11 @@ async function exTransactionsAll(req, res, next) {
         worksheet.getCell('C5').value = 'Datetime';
         worksheet.getCell('D5').value = 'Amount';
         worksheet.getCell('E5').value = 'Note';
-        worksheet.getCell('F5').value = 'Favorite';
-        worksheet.getCell('G5').value = 'Category Name';
-        worksheet.getCell('H5').value = 'Category Type';
-        worksheet.getCell('I5').value = 'Tags';
+        worksheet.getCell('F5').value = 'Detail';
+        worksheet.getCell('G5').value = 'Favorite';
+        worksheet.getCell('H5').value = 'Category Name';
+        worksheet.getCell('I5').value = 'Category Type';
+        worksheet.getCell('J5').value = 'Tags';
 
         worksheet.columns = [
             { key: 'transactions_id', width: 15 },
@@ -161,6 +164,7 @@ async function exTransactionsAll(req, res, next) {
             { key: 'transaction_datetime', width: 20 },
             { key: 'amount', width: 10 },
             { key: 'note', width: 30 },
+            { key: 'detail', width: 30 },
             { key: 'fav', width: 10 },
             { key: 'categorie_name', width: 20 },
             { key: 'categorie_type', width: 20 },
@@ -222,6 +226,7 @@ async function exportTemplate(req, res, next) {
             { header: 'Categorie ID', key: 'categorie_id', width: 15 },
             { header: 'Amount', key: 'amount', width: 10 },
             { header: 'Note', key: 'note', width: 35 },
+            { header: 'Detail', key: 'detail', width: 45 },
             { header: 'Favorite (0 = No/1 = Yes)', key: 'fav', width: 25 },
             { header: 'Tags (tag id)', key: 'tags', width: 30 }
         ];
@@ -231,6 +236,7 @@ async function exportTemplate(req, res, next) {
             categorie_id: 1,
             amount: 100.50,
             note: 'Example transaction note REPLACE HERE(28 Character)',
+            detail: 'Example transaction detail REPLACE HERE(50 Character)',
             fav: 1,
             tags: '[tag_id,tag_id]'
         };
@@ -253,6 +259,7 @@ async function exportTemplate(req, res, next) {
             categorie_id: exampleTransaction.categorie_id,
             amount: exampleTransaction.amount,
             note: exampleTransaction.note,
+            detail: exampleTransaction.detail,
             fav: exampleTransaction.fav,
             tags: exampleTransaction.tags
         });
@@ -346,9 +353,9 @@ async function exportTemplate(req, res, next) {
 
 //==checking before import==
 async function validateTransactionData(user_id, transactionData) {
-    const { categorie_id, tag_id, transaction_datetime, amount, note, fav } = transactionData;
+    const { categorie_id, tag_id, transaction_datetime, amount, note, detail, fav } = transactionData;
 
-    if ( !categorie_id || !amount || !transaction_datetime  || fav === undefined) {
+    if ( !categorie_id || !amount || !note || !transaction_datetime  || fav === undefined) {
         throw new Error(`Missing fill out the information completely.`);
     }
 
@@ -373,6 +380,11 @@ async function validateTransactionData(user_id, transactionData) {
     // Check note length
     if (note && note.length > 28) {
         throw new Error(`Note exceeds maximum length of 28 characters.`);
+    }
+
+    // Check detail length
+    if (detail && detail.length > 50) {
+        throw new Error(`Detail exceeds maximum length of 50 characters.`);
     }
 }
 
@@ -427,7 +439,7 @@ async function importTransactionsFromExcel(req, res, next) {
                 transaction_datetime = transaction_datetime.split(' ')[0] + ' 00:00:00';
             }
             
-            let tag_id = row.getCell(6).value ? row.getCell(6).value.toString().trim() : '[]';
+            let tag_id = row.getCell(7).value ? row.getCell(7).value.toString().trim() : '[]';
             try {
                 tag_id = JSON.parse(tag_id);
                 if (!Array.isArray(tag_id)) {
@@ -444,7 +456,8 @@ async function importTransactionsFromExcel(req, res, next) {
                 categorie_id: row.getCell(2).value,
                 amount: row.getCell(3).value,
                 note: row.getCell(4).value,
-                fav: row.getCell(5).value,
+                detail: row.getCell(5).value,
+                fav: row.getCell(6).value,
                 tag_id: tag_id,
             };
 
@@ -557,7 +570,7 @@ async function importTransactionsFromExcelAll(req, res, next) {
                 transaction_datetime = transaction_datetime.split(' ')[0] + ' 00:00:00';
             }
             
-            let tag_id = row.getCell(6).value ? row.getCell(6).value.toString().trim() : '[]';
+            let tag_id = row.getCell(7).value ? row.getCell(7).value.toString().trim() : '[]';
             try {
                 tag_id = JSON.parse(tag_id);
                 if (!Array.isArray(tag_id)) {
@@ -574,7 +587,8 @@ async function importTransactionsFromExcelAll(req, res, next) {
                 categorie_id: row.getCell(2).value,
                 amount: row.getCell(3).value,
                 note: row.getCell(4).value,
-                fav: row.getCell(5).value,
+                detail: row.getCell(5).value,
+                fav: row.getCell(6).value,
                 tag_id: tag_id,
             };
 
@@ -682,19 +696,19 @@ async function importFile(req, res, next) {
 
 
 async function record(req) {
-    const { user_id, categorie_id, amount, note, transaction_datetime, fav, tag_id } = req.body;
+    const { user_id, categorie_id, amount, note, detail, transaction_datetime, fav, tag_id } = req.body;
 
-    if (!user_id || !categorie_id || !amount || !transaction_datetime || fav === undefined) {
+    if (!user_id || !categorie_id || !amount || !note|| !transaction_datetime || fav === undefined) {
         throw new Error('Please fill out the information completely.');
     }
 
-    const noteValue = note !== undefined ? note : null;
+    const detailValue = detail !== undefined ? detail : null;
     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
     const favValue = fav !== undefined && fav !== null ? fav : 0;
 
     try {
-        const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?)';
-        const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, noteValue, transactionDatetimeThai, favValue]);
+        const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, detail, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?, ?)';
+        const transactionInsertResult = await executeQuery(addTransaction, [user_id, categorie_id, amount, note, detailValue, transactionDatetimeThai, favValue]);
 
         if (!transactionInsertResult || !transactionInsertResult.insertId) {
             throw new Error('Failed to insert transaction');
