@@ -19,6 +19,7 @@ const User = require('./User');
 const Categories = require('./Categories');
 const Tags = require('./Tags');
 const ImEx_Excelfile = require('./ImEx_Excelfile');
+const Chatbot = require('./Chatbot');
 
 app.use(cors());
 dotenv.config();
@@ -27,10 +28,11 @@ moment.tz.setDefault(config.timezone);
 
 app.use('/', transactionsRouter);
 app.use('/', User);
-app.use('/', FavTransactions)
-app.use('/', Categories)
-app.use('/', Tags)
-app.use('/', ImEx_Excelfile)
+app.use('/', FavTransactions);
+app.use('/', Categories);
+app.use('/', Tags);
+app.use('/', ImEx_Excelfile);
+app.use('/', Chatbot);
 app.use('/exports', express.static(path.join(__dirname, 'exports')));
 app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
 
