@@ -63,6 +63,7 @@ async function getFavorite(req, res, next) {
                 Transactions.amount,
                 Transactions.note,
                 Transactions.detail,
+                Transactions.transaction_datetime,
                 Transactions.fav,
                 Categories.name AS categorie_name,
                 Categories.type AS categorie_type,
@@ -79,6 +80,8 @@ async function getFavorite(req, res, next) {
                 Transactions.user_id = ? AND Transactions.fav = ?
             GROUP BY
                 Transactions.transactions_id
+            ORDER BY
+                DATE_FORMAT(Transactions.transaction_datetime, '%Y-%m-%d %H:%i:%s') DESC
         `;
 
         const checkResult = await executeQuery(getFavoriteQuery, [user_id, fav])
@@ -93,6 +96,7 @@ async function getFavorite(req, res, next) {
             amount: parseFloat(transaction.amount),
             note: transaction.note,
             detail: transaction.detail,
+            transaction_datetime: moment(transaction.transaction_datetime).format('YYYY-MM-DD HH:mm:ss'),
             fav: transaction.fav,
             categorie_name: transaction.categorie_name,
             categorie_type: transaction.categorie_type,
