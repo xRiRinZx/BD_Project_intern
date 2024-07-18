@@ -16,6 +16,7 @@ async function ChatbotRecord (req, res, next) {
 const user_id = res.locals.user.user_id;
     const agent = new WebhookClient({ request: req, response: res });
 
+//=========================================[RecordTransactions Command]=========================================
     async function askTransactionType(agent) {
         agent.context.set({
             name: 'awaiting_transaction_type',
@@ -71,27 +72,30 @@ const user_id = res.locals.user.user_id;
     
         console.log('Selected Category:', categoryId);
     
-        if (!categoryId) {
-            agent.add('หมวดหมู่ที่เลือกไม่ถูกต้อง กรุณาเลือกใหม่');
-            return;
-        }
-    
-        const selectedCategory = categories.find(cat => cat.id === categoryId);
+        // Check if categoryId is valid
+        const selectedCategory = categories.find(cat => cat.id == categoryId);
         if (!selectedCategory) {
+            // Remove the incorrect context if category is invalid
+            agent.context.set({
+                name: 'awaiting_amount',
+                lifespan: 0,
+            });
+    
             agent.add('หมวดหมู่ที่เลือกไม่ถูกต้อง กรุณาเลือกใหม่');
             return;
         }
     
-        // Set context for awaiting_amount
+        // If valid, proceed
+        agent.add('กรุณาใส่จำนวนเงินของธุรกรรม');
+    
         agent.context.set({
             name: 'awaiting_amount',
             lifespan: 5,
             parameters: { category_id: selectedCategory.id, transactionType: context.transactionType }
         });
-    
-        // Prepare message for user to enter transaction amount
-        agent.add('กรุณาใส่จำนวนเงินของธุรกรรม');
     }
+    
+    
     
     async function getAmount(agent) {
         const amount = agent.parameters.amount;
@@ -101,14 +105,13 @@ const user_id = res.locals.user.user_id;
     
         // Validate amount
         if (!amount || isNaN(amount)) {
-            agent.add('จำนวนเงินที่ใส่ไม่ถูกต้อง กรุณาใส่เป็นตัวเลข');
-            return;
-        }
+            // Remove the incorrect context if is invalid
+            agent.context.set({
+                name: 'awaiting_note',
+                lifespan: 0,
+            });
     
-        // Validate selected category
-        const categoryId = context.category_id;
-        if (!categoryId) {
-            agent.add('ข้อมูลไม่ถูกต้อง กรุณาเลือกหมวดหมู่ใหม่');
+            agent.add('จำนวนเงินที่ใส่ไม่ถูกต้อง กรุณาใส่เป็นตัวเลข');
             return;
         }
     
@@ -149,30 +152,69 @@ const user_id = res.locals.user.user_id;
     async function getDatetime(agent) {
         const context = agent.context.get('awaiting_transaction_datetime').parameters;
         const transaction_datetime = agent.parameters.transaction_datetime;
+    
+        // Validate transaction_datetime format
+        const isValidDatetime = moment(transaction_datetime, ['YYYY-MM-DD HH:mm:ss', 'YYYY-MM-DD'], true).isValid();
+    
+        if (!isValidDatetime) {
+            agent.context.set({
+                name: 'awaiting_fav',
+                lifespan: 0,
+            });
+            agent.add('รูปแบบวันที่ไม่ถูกต้อง กรุณากรอกใหม่');
+            return;
+        }
+    
+        // Format transaction_datetime to Thai format
         const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
+    
+        // Set context for awaiting_fav
         agent.context.set({
             name: 'awaiting_fav',
             lifespan: 5,
-            parameters: { ...context, transaction_datetime: transactionDatetimeThai}
-        })
-        agent.add('ต้องการเพิ่มเป็นfavoriteไหม? (เพิ่ม = 1 / ไม่เพิ่ม = 0)')
+            parameters: { ...context, transaction_datetime: transactionDatetimeThai }
+        });
+    
+        agent.add('ต้องการเพิ่มเป็น favorite ไหม? (เพิ่ม = 1 / ไม่เพิ่ม = 0)');
     }
 
     async function getFav(agent) {
         const context = agent.context.get('awaiting_fav').parameters;
         const fav = agent.parameters.fav;
+    
+        if (fav !== 1 || fav !== 0) {
+            agent.context.set({
+                name: "awaiting_select_tag_id",
+                lifespan: 0,
+            });
+            agent.add('กรุณาใส่เฉพาะค่า 1 หรือ 0 เท่านั้น');
+            return;
+        } 
         agent.context.set({
             name: "awaiting_select_tag_id",
             lifespan: 5,
             parameters: { ...context, fav }
-        })
-        agent.add('ต้องการเพิ่มtagไหม? (เพิ่ม / ไม่เพิ่ม)')
+        });
+        agent.add('ต้องการเพิ่ม tag ไหม? (เพิ่ม / ไม่เพิ่ม)');
     }
-        
+    
+    async function handleTagDecision(agent) {
+        const context = agent.context.get('awaiting_select_tag_id').parameters;
+        const decision = agent.parameters.decision;
+    
+        if (decision === 'เพิ่ม') {
+            await getTag(agent);
+        } else if (decision === 'ไม่เพิ่ม') {
+            await getRecordNo(agent,context);
+        } else {
+            agent.add('คำสั่งไม่ถูกต้อง กรุณาพิมพ์ "เพิ่ม" หรือ "ไม่เพิ่ม"');
+        }
+    }
+    
     async function getTag(agent) {
         const context = agent.context.get('awaiting_select_tag_id').parameters;
-        const tag = agent.parameters.tag;
-        console.log(user_id)
+        console.log(user_id);
+    
         try {
             const tagQuery = 'SELECT * FROM Tags WHERE user_id = ?';
             const tags = await executeQuery(tagQuery, [user_id]);
@@ -190,36 +232,107 @@ const user_id = res.locals.user.user_id;
             agent.context.set({
                 name: 'awaiting_tag_id',
                 lifespan: 5,
-                parameters: { ...context, options, tag }
+                parameters: { ...context, options }
             });
     
             const optionsText = options.map(option => `${option.id}: ${option.name}`).join(', ');
             agent.add(`กรุณาเลือกแท็กที่ต้องการ (ตัวอย่าง: เลข​tag_id, เลข​tag_id): ${optionsText}`);
-    
-            // Ensure you're not calling `record(req, res, next);` here
         } catch (err) {
             agent.add(`Error: ${err.message}`);
         }
     }
-
+    
     async function getRecord(agent) {
-        const select_tag = agent.parameters.select_tag;
-        const context = agent.context.get('awaiting_tag_id').parameters;
-        console.log(user_id)
+        let select_tag = agent.parameters.select_tag;
+        let context = agent.context.get('awaiting_tag_id').parameters ;
+        const options = context.options || []; // assuming options contain the valid tags
+        console.log(user_id);
         
-        if (!select_tag) {
-            agent.add('แท็กที่เลือกไม่ถูกต้อง กรุณาเลือกใหม่');
+        if (!select_tag || typeof select_tag === 'string' && select_tag.trim() === '') {
+            select_tag = [];
+        } else if (typeof select_tag === 'string') {
+            select_tag = select_tag.split(',').map(tag => parseInt(tag.trim(), 10)).filter(tag => !isNaN(tag));
+        } else if (!Array.isArray(select_tag)) {
+            select_tag = [select_tag];
+        }
+        
+        // Check if all selected tags are valid
+        const invalidTags = select_tag.filter(tag => !options.some(option => option.id === tag));
+
+        if (invalidTags.length > 0) {
+            // Remove the incorrect context if it is invalid
+            agent.context.set({
+                name: 'awaiting_record',
+                lifespan: 0,
+            });
+            agent.add(`แท็กที่เลือกไม่ถูกต้อง: ${invalidTags.join(', ')} กรุณาเลือกใหม่`);
             return;
         }
     
+        // If all tags are valid, proceed
         agent.context.set({
             name: 'awaiting_record',
             lifespan: 5,
             parameters: { ...context, tag_id: select_tag }
         });
-        record(agent);
+    
+        await record(agent);
         agent.add('บันทึกสำเร็จ');
+        // Clear all contexts
+        const contexts = agent.contexts;
+        contexts.forEach(ctx => {
+            agent.context.set({
+                name: ctx.name,
+                lifespan: 0,
+            });
+        });
     }
+
+    async function getRecordNo(agent,context) {
+        let select_tag = agent.parameters.select_tag;
+        const options = context.options || []; // assuming options contain the valid tags
+        console.log(user_id);
+        
+        if (!select_tag || typeof select_tag === 'string' && select_tag.trim() === '') {
+            select_tag = [];
+        } else if (typeof select_tag === 'string') {
+            select_tag = select_tag.split(',').map(tag => parseInt(tag.trim(), 10)).filter(tag => !isNaN(tag));
+        } else if (!Array.isArray(select_tag)) {
+            select_tag = [select_tag];
+        }
+        
+        // Check if all selected tags are valid
+        const invalidTags = select_tag.filter(tag => !options.some(option => option.id === tag));
+
+        if (invalidTags.length > 0) {
+            // Remove the incorrect context if it is invalid
+            agent.context.set({
+                name: 'awaiting_record',
+                lifespan: 0,
+            });
+            agent.add(`แท็กที่เลือกไม่ถูกต้อง: ${invalidTags.join(', ')} กรุณาเลือกใหม่`);
+            return;
+        }
+    
+        // If all tags are valid, proceed
+        agent.context.set({
+            name: 'awaiting_record',
+            lifespan: 5,
+            parameters: { ...context, tag_id: select_tag }
+        });
+    
+        await record(agent);
+        agent.add('บันทึกสำเร็จ');
+        // Clear all contexts
+        const contexts = agent.contexts;
+        contexts.forEach(ctx => {
+            agent.context.set({
+                name: ctx.name,
+                lifespan: 0,
+            });
+        });
+    }
+
     async function record(agent) {
         const context = agent.context.get('awaiting_record').parameters;
         // const user_id = context.user_id;
@@ -259,9 +372,11 @@ const user_id = res.locals.user.user_id;
 
             // Check TagAdd
             if (Array.isArray(tag_id) && tag_id.length > 0) {
-                const tagIdString = tag_id.join(',');
-                const checkTagsQuery = `SELECT * FROM Tags WHERE tag_id IN (${tagIdString}) AND user_id = ?`;
-                const tagsExist = await executeQuery(checkTagsQuery, user_id);
+                const tagIdArray = tag_id; // tag_id ต้องเป็น array ที่มีค่าตัวเลขที่ต้องการค้นหา
+                const checkTagsQuery = `SELECT * FROM Tags WHERE tag_id IN (${tagIdArray}) AND user_id = ?`;
+                const tagsExist = await executeQuery(checkTagsQuery, [user_id]);
+
+
 
                 if (tagsExist.length !== tag_id.length) {
                     agent.add('มีแท็กบางรายการไม่เป็นของผู้ใช้');
@@ -281,15 +396,15 @@ const user_id = res.locals.user.user_id;
             }
             console.log('======3=======')
 
-            const transaction_id = transactionInsertResult.insertId;
+            const transactions_id = transactionInsertResult.insertId;
 
             // Insert into Transactions_Tags_map if tag_id is present
             if (Array.isArray(tag_id) && tag_id.length > 0) {
-                const tagValues = tag_id.map(tag => [transaction_id, tag]);
+                const tagValues = tag_id.map(tag => [transactions_id, tag]);
                 const tagValuesPlaceholder = tagValues.map(() => '(?, ?)').join(', ');
                 const flattenedTagValues = tagValues.flat();
 
-                const insertTagsQuery = `INSERT INTO Transactions_Tags_map (transaction_id, tag_id) VALUES ${tagValuesPlaceholder}`;
+                const insertTagsQuery = `INSERT INTO Transactions_Tags_map (transactions_id, tag_id) VALUES ${tagValuesPlaceholder}`;
                 await executeQuery(insertTagsQuery, flattenedTagValues);
             }
             console.log('======4=======')
@@ -303,9 +418,62 @@ const user_id = res.locals.user.user_id;
             // Error response
             agent.add(`เกิดข้อผิดพลาดในการบันทึกธุรกรรม: ${err.message}`);
         }
+    }
+//======================================================================================================================
+
+//=========================================[SummaryDay Command]=========================================
+async function dailySummary(agent) {
+    const user_id = res.locals.user.user_id;
+
+    if (!user_id) {
+        agent.add('ไม่พบข้อมูลผู้ใช้ กรุณาลองใหม่');
+        return;
+    }
+
+    try {
+        let dateString = agent.parameters.date || 'today';
+        let date_start, date_end;
+
+        if (dateString === 'today') {
+            date_start = moment().startOf('day').format('YYYY-MM-DD HH:mm:ss');
+            date_end = moment().endOf('day').format('YYYY-MM-DD HH:mm:ss');
+        } else {
+            // แปลง ISO 8601 format ให้เป็น 'YYYY-MM-DD'
+            const momentDate = moment(dateString, moment.ISO_8601);
+            date_start = momentDate.startOf('day').format('YYYY-MM-DD HH:mm:ss');
+            date_end = momentDate.endOf('day').format('YYYY-MM-DD HH:mm:ss');
+        }
+
+        const incomeQuery = 'SELECT SUM(amount) as total_income FROM Transactions WHERE user_id = ? AND transaction_datetime BETWEEN ? AND ? AND categorie_id IN (SELECT categorie_id FROM Categories WHERE type = "income")';
+        const expenseQuery = 'SELECT SUM(amount) as total_expense FROM Transactions WHERE user_id = ? AND transaction_datetime BETWEEN ? AND ? AND categorie_id IN (SELECT categorie_id FROM Categories WHERE type = "expenses")';
+
+        const [incomeResult, expenseResult] = await Promise.all([
+            executeQuery(incomeQuery, [user_id, date_start, date_end]),
+            executeQuery(expenseQuery, [user_id, date_start, date_end])
+        ]);
+
+        const totalIncome = incomeResult[0].total_income || 0;
+        const totalExpense = expenseResult[0].total_expense || 0;
+        const save = totalIncome - totalExpense;
+
+        const date_range = (date_start === date_end)
+            ? moment(date_start).format('YYYY-MM-DD')
+            : `${moment(date_start).format('YYYY-MM-DD')} - ${moment(date_end).format('YYYY-MM-DD')}`;
+
+        agent.add(`สรุปรายรับรายวันสำหรับวันที่ ${date_range}:
+            \nรายรับ: ${totalIncome} บาท
+            \nรายจ่าย: ${totalExpense} บาท
+            \nคงเหลือ: ${save} บาท
+            \nมีอะไรให้ช่วยเหลืออีกไหมคะ?`);
+    } catch (err) {
+        agent.add(`เกิดข้อผิดพลาดในการดึงข้อมูล: ${err.message}`);
+    }
 }
-    
-    // == Record Transactions ==
+
+
+
+
+
 
     let intentMap = new Map();
     intentMap.set('AskTransactionType', askTransactionType);
@@ -316,75 +484,14 @@ const user_id = res.locals.user.user_id;
     intentMap.set('GetDetail', getDetail);
     intentMap.set('GetDatetime', getDatetime);
     intentMap.set('GetFav', getFav);
+    intentMap.set('HandleTagDecision', handleTagDecision);
     intentMap.set('GetTag', getTag);
     intentMap.set('GetRecord', getRecord);
+    intentMap.set('GetRecordNo', getRecordNo);
     intentMap.set('Record', record);
+    intentMap.set('DailySummary', dailySummary);
     agent.handleRequest(intentMap);
 }
-
-// == Record Transactions ==
-// async function record(agent) {
-//     if (!category_id || !amount || !note || !transaction_datetime || fav === undefined) {
-//         agent.add('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน');
-//         return;
-//     }
-
-//     const detailValue = detail !== undefined ? detail : null;
-//     const transactionDatetimeThai = moment(transaction_datetime).format('YYYY-MM-DD HH:mm:ss');
-//     const favValue = fav !== undefined && fav !== null ? fav : 0;
-
-//     try {
-//         // Check CategorieUser
-//         const checkCategorieUserQuery = 'SELECT * FROM Categories WHERE categorie_id = ? AND user_id = ? OR user_id IS NULL';
-//         const categorieExists = await executeQuery(checkCategorieUserQuery, [category_id, [user_id]]);
-
-//         if (categorieExists.length === 0) {
-//             agent.add('ไม่พบหมวดหมู่สำหรับผู้ใช้นี้');
-//             return;
-//         }
-
-//         // Check TagAdd
-//         if (Array.isArray(tag_id) && tag_id.length > 0) {
-//             // Convert tag_id array to a comma-separated string for the query
-//             const tagIdString = tag_id.join(',');
-//             const checkTagsQuery = `SELECT * FROM Tags WHERE tag_id IN (${tagIdString}) AND user_id = ?`;
-//             const tagsExists = await executeQuery(checkTagsQuery, [user_id]);
-
-//             if (tagsExists.length !== tag_id.length) {
-//                 agent.add('มีแท็กบางรายการไม่เป็นของผู้ใช้');
-//                 return;
-//             }
-//         }
-
-//         // Add To Transactions
-//         const addTransaction = 'INSERT INTO Transactions (user_id, categorie_id, amount, note, detail, transaction_datetime, fav) VALUES (?, ?, ?, ?, ?, ?, ?)';
-//         const transactionInsertResult = await executeQuery(addTransaction, [user_id, category_id, amount, note, detailValue, transactionDatetimeThai, favValue]);
-
-//         if (!transactionInsertResult || !transactionInsertResult.insertId) {
-//             throw new Error('การบันทึกธุรกรรมล้มเหลว');
-//         }
-
-//         const transaction_id = transactionInsertResult.insertId;
-
-//         if (Array.isArray(tag_id) && tag_id.length > 0) {
-//             const values = tag_id.map(tag => [transaction_id, tag]);
-//             const valuesPlaceholder = values.map(() => '(?, ?)').join(', ');
-//             const flattenedValues = values.flat();
-
-//             const insertMapQuery = `INSERT INTO Transactions_Tags_map (transaction_id, tag_id) VALUES ${valuesPlaceholder}`;
-//             await executeQuery(insertMapQuery, flattenedValues);
-//         }
-
-//         // ตอบกลับผู้ใช้ว่าบันทึกสำเร็จพร้อมแสดงรายละเอียดของธุรกรรมที่บันทึกได้
-//         const responseMessage = `บันทึกธุรกรรมเรียบร้อยแล้ว\n\nหมวดหมู่: ${category_id}\nจำนวนเงิน: ${amount}\nโน๊ต: ${note}\nรายละเอียด: ${detailValue}\nวันที่และเวลา: ${transactionDatetimeThai}\nFavorite: ${favValue === 1 ? 'ใช่' : 'ไม่ใช่'}`;
-//         agent.add(responseMessage);
-
-//     } catch (err) {
-//         // ตอบกลับในกรณีเกิด error
-//         agent.add(`เกิดข้อผิดพลาดในการบันทึกธุรกรรม: ${err.message}`);
-//     }
-// }
-
 
 
 router.post('/chatbot-record', jsonParser, AuthenAndgetUser, ChatbotRecord);
